@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import years, rating, type_label, poster, votes with context %}
+{% set tid = fmt_id('tt', t.tconst) %}
+{% block title %}{{ t.primary_title }}{% if t.start_year %} ({{ t.start_year }}){% endif %}{% endblock %}
+{% block description %}{{ type_label(t.type) }}{% if t.start_year %} · {{ years(t) }}{% endif %}{% if t.genres %} · {{ t.genres.replace(',', ', ') }}{% endif %}{% if t.rating %} · ★ {{ t.rating }} ({{ '{:,}'.format(t.votes) }} votes){% endif %}{% set ds = crew | selectattr('role', 'equalto', 'director') | map(attribute='name') | list %}{% if ds %} · Directed by {{ ds[:3] | join(', ') }}{% endif %}{% endblock %}
+{% block og_image %}{{ request.url_root }}poster/{{ tid }}{% endblock %}
+{% block twitter_card %}summary{% endblock %}
+{% block content %}
+<div id="backdrop"></div>
+<div class="relative">
+{% if parent %}
+<a href="/title/{{ fmt_id('tt', parent.tconst) }}" class="inline-flex items-center gap-1 text-sm text-zinc-400 hover:text-accent mb-4">← {{ parent.primary_title }}{% if parent.season %} · Season {{ parent.season }}, Episode {{ parent.episode }}{% endif %}</a>
+{% endif %}
+<div class="flex flex-col sm:flex-row gap-6">
+	<div class="w-48 shrink-0 mx-auto sm:mx-0">
+		<div class="aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800">{{ poster(tid, 'w-full h-full object-cover') }}</div>
+	</div>
+	<div class="flex-1 min-w-0">
+		<div class="text-xs uppercase tracking-wider text-zinc-500">{{ type_label(t.type) }}</div>
+		<h1 class="text-3xl font-extrabold tracking-tight">{{ t.primary_title }}</h1>
+		{% if t.original_title != t.primary_title %}<div class="text-zinc-400 italic">{{ t.original_title }}</div>{% endif %}
+		<div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-zinc-400">
+			{% if t.start_year %}<span>{{ years(t) }}</span>{% endif %}
+			{% if t.runtime %}<span>{{ t.runtime // 60 ~ 'h ' if t.runtime >= 60 }}{{ t.runtime % 60 }}m</span>{% endif %}
+			{{ rating(t, 'text-sm') }}
+		</div>
+		{% if t.genres %}<div class="mt-3 flex flex-wrap gap-1.5">{% for g in t.genres.split(',') %}<a href="/titles?genre={{ g }}" class="px-3 py-1 rounded-full text-xs border border-zinc-700 hover:border-accent hover:text-accent">{{ g }}</a>{% endfor %}</div>{% endif %}
+		{% set directors = crew | selectattr('role', 'equalto', 'director') | list %}
+		{% set writers = crew | selectattr('role', 'equalto', 'writer') | list %}
+		<dl class="mt-4 space-y-1 text-sm">
+			{% if directors %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Director{{ 's' if directors | length > 1 }}</dt><dd>{% for p in directors[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if directors | length > 12 %} +{{ directors | length - 12 }} more{% endif %}</dd></div>{% endif %}
+			{% if writers %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Writer{{ 's' if writers | length > 1 }}</dt><dd>{% for p in writers[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if writers | length > 12 %} +{{ writers | length - 12 }} more{% endif %}</dd></div>{% endif %}
+		</dl>
+		<div class="mt-4">{% with tconst = t.tconst %}{% include '_marks.html' %}{% endwith %}</div>
+		<div hx-get="/title/{{ tid }}/tmdb" hx-trigger="load" hx-swap="outerHTML"></div>
+		<div class="mt-5 flex flex-wrap gap-2 items-start">
+			<div id="lists-{{ t.tconst }}">{{ lists_html | safe }}</div>
+			<a href="https://www.imdb.com/title/{{ tid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">IMDb ↗</a>
+			<a href="https://letterboxd.com/imdb/{{ tid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">Letterboxd ↗</a>
+		</div>
+	</div>
+</div>
+
+<section id="cast" class="{{ 'mt-10' if cast }}">
+{% if cast %}
+	<h2 class="text-lg font-semibold mb-3">Cast & crew</h2>
+	<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
+		{% for c in cast %}
+		<a href="/name/{{ fmt_id('nm', c.nconst) }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
+			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0">{{ poster(fmt_id('nm', c.nconst), 'w-full h-full object-cover') }}</div>
+			<div class="min-w-0">
+				<div class="text-sm font-medium truncate group-hover:text-accent">{{ c.name }}</div>
+				<div class="text-xs text-zinc-500 truncate">{% if c.characters %}{{ json.loads(c.characters) | join(' / ') }}{% else %}{{ (c.job or c.category).replace('_', ' ') | capitalize }}{% endif %}</div>
+			</div>
+		</a>
+		{% endfor %}
+	</div>
+{% endif %}
+</section>
+
+{% if seasons %}
+<section class="mt-10" x-data="{season: '{{ (seasons | list)[0] }}'}">
+	<h2 class="text-lg font-semibold mb-3">Episodes <span class="text-zinc-500 text-sm font-normal">{{ seasons.values() | map('length') | sum }}</span></h2>
+	<div class="flex flex-wrap gap-1.5 mb-3">
+		{% for s in seasons %}<button @click="season = '{{ s }}'" :class="season == '{{ s }}' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">{{ 'S' ~ s if s is not none else 'Unknown' }}</button>{% endfor %}
+	</div>
+	{% for s, eps in seasons.items() %}
+	<div x-show="season == '{{ s }}'" class="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800">
+		{% for e in eps %}
+		<a href="/title/{{ fmt_id('tt', e.tconst) }}" class="flex items-center gap-4 px-4 py-2.5 hover:bg-zinc-900">
+			<span class="w-10 text-xs text-zinc-500 tabular-nums">{{ 'E' ~ e.episode if e.episode is not none else '' }}</span>
+			<span class="flex-1 min-w-0 text-sm truncate">{{ e.primary_title }}</span>
+			<span class="text-xs text-zinc-500">{{ e.start_year or '' }}</span>
+			<span class="w-24 text-right">{{ rating(e) }}</span>
+		</a>
+		{% endfor %}
+	</div>
+	{% endfor %}
+</section>
+{% endif %}
+
+{% if akas %}
+<section class="mt-10">
+	<h2 class="text-lg font-semibold mb-3">Also known as</h2>
+	<div class="flex flex-wrap gap-2 text-sm">{% for a in akas %}<span class="px-2.5 py-1 rounded-lg bg-zinc-900 text-zinc-300">{{ a.title }}{% if a.region %} <span class="text-zinc-500 text-xs">{{ a.region }}</span>{% endif %}</span>{% endfor %}</div>
+</section>
+{% endif %}
+</div>
+{% endblock %}

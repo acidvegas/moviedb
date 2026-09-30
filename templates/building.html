@@ -1,0 +1,8 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="max-w-xl mx-auto mt-16 text-center">
+	<h1 class="text-2xl font-bold">The database hasn't been built yet</h1>
+	<p class="mt-2 text-zinc-400">The IMDb datasets are being imported. This page refreshes on its own.</p>
+	<div class="mt-8 text-left" hx-get="/update" hx-trigger="load, every 3s" hx-swap="innerHTML"></div>
+</div>
+{% endblock %}

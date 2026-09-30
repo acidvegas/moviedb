@@ -1,0 +1,17 @@
+{% set s = status %}
+<div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm" {% if s.state == 'running' %}hx-get="/update" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+	{% if not s %}
+	<div class="text-zinc-400">The importer has never run.</div>
+	{% else %}
+	<div class="flex items-center gap-2">
+		{% if s.state == 'running' %}<span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span>{% elif s.state == 'done' %}<span class="w-2 h-2 rounded-full bg-emerald-500"></span>{% else %}<span class="w-2 h-2 rounded-full bg-red-500"></span>{% endif %}
+		<span class="font-medium">{{ s.step }}</span>
+		{% if s.rows %}<span class="text-zinc-500">{{ '{:,}'.format(s.rows) }} rows</span>{% endif %}
+		{% if s.progress %}<span class="text-zinc-500">{{ s.progress }}</span>{% endif %}
+	</div>
+	<div class="mt-1 text-xs text-zinc-500">
+		Started {{ s.started | int | datetime }}{% if s.finished %} · finished {{ s.finished | int | datetime }} ({{ ((s.finished - s.started) / 60) | round(1) }} min){% endif %}
+	</div>
+	{% if s.error %}<div class="mt-2 text-red-400 font-mono text-xs">{{ s.error }}</div>{% endif %}
+	{% endif %}
+</div>

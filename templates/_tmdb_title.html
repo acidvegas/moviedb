@@ -1,0 +1,91 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _tmdb_title.html -->
+
+{% if d %}
+{% set backdrop = img(d.backdrop_path, 'w1280') if d.backdrop_path else d.backdrop %}
+{% if backdrop %}
+<div id="backdrop" hx-swap-oob="true" class="pointer-events-none absolute inset-x-0 top-0 h-[34rem] overflow-hidden">
+	<img src="{{ backdrop }}" alt="" class="w-full h-full object-cover object-top opacity-30">
+	<div class="absolute inset-0 bg-gradient-to-b from-zinc-950/30 via-zinc-950/75 to-zinc-950"></div>
+</div>
+{% endif %}
+<div class="mt-4 max-w-3xl" x-data="{trailer: false}">
+	{% if d.tagline %}<p class="italic text-zinc-400">“{{ d.tagline }}”</p>{% endif %}
+	{% if d.overview %}<p class="mt-2 leading-relaxed text-zinc-200">{{ d.overview }}</p>{% endif %}
+	{% set facts = [
+		('Released', d.release_date), ('Aired', (d.first_air or '') ~ (' → ' ~ d.last_air if d.last_air and d.last_air != d.first_air else '') if d.first_air else None), ('Air date', d.air_date),
+		('Rated', d.certification), ('Status', d.status), ('Next episode', d.next_episode),
+		('Seasons', '%s seasons · %s episodes' | format(d.seasons, d.episodes) if d.seasons else None),
+		('Created by', d.created_by | join(', ') if d.created_by else None), ('Network', d.networks | join(', ') if d.networks else None),
+		('Country', d.countries | join(', ') if d.countries else None), ('Language', d.languages | join(', ') if d.languages else None),
+		('Budget', '${:,}'.format(d.budget) if d.budget else None), ('Box office', '${:,}'.format(d.revenue) if d.revenue else None),
+		('Collection', d.collection), ('Studios', d.companies[:5] | join(', ') if d.companies else None),
+		('TMDB', '%.1f (%s votes)' | format(d.tmdb_rating, '{:,}'.format(d.tmdb_votes)) if d.tmdb_votes else None)
+	] %}
+	<dl class="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+		{% for label, value in facts if value %}<div class="flex gap-2"><dt class="w-24 shrink-0 text-zinc-500">{{ label }}</dt><dd class="min-w-0">{{ value }}</dd></div>{% endfor %}
+	</dl>
+
+	{% if d.providers is defined %}
+	{% set mine_here = d.providers | selectattr('id', 'in', mine.providers) | list %}
+	<div class="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+		<div class="flex items-center justify-between gap-2 mb-2">
+			<h3 class="text-sm font-semibold">Where to stream <span class="text-xs font-normal text-zinc-500">US</span></h3>
+			{% if mine.providers %}<span class="text-xs {{ 'text-emerald-400' if mine_here else 'text-zinc-500' }}">{{ 'On ' ~ (mine_here | map(attribute='name') | join(', ')) if mine_here else 'Not on your services' }}</span>{% endif %}
+		</div>
+		{% if d.providers %}
+		<div class="flex flex-wrap gap-2">
+			{% for p in d.providers %}
+			<a href="{{ d.providers_link or d.url }}" target="_blank" rel="noopener" title="{{ p.name }}{{ ' (free)' if p.type == 'free' else ' (with ads)' if p.type == 'ads' else '' }}" class="relative block w-11 h-11 rounded-lg overflow-hidden {{ 'ring-2 ring-emerald-400' if p.id in mine.providers else 'ring-1 ring-zinc-700 opacity-80 hover:opacity-100' }}">
+				<img src="{{ img(p.logo, 'w92') }}" alt="{{ p.name }}" loading="lazy" class="w-full h-full object-cover">
+				{% if p.type != 'flatrate' %}<span class="absolute bottom-0 inset-x-0 bg-black/80 text-[9px] text-center leading-3 text-zinc-200">{{ 'FREE' if p.type == 'free' else 'ADS' }}</span>{% endif %}
+			</a>
+			{% endfor %}
+		</div>
+		{% else %}<p class="text-xs text-zinc-500">Not available to stream in the US right now.</p>{% endif %}
+		{% if not mine.providers %}<p class="mt-2 text-xs text-zinc-500">Pick your services in <a href="/settings" class="text-accent">Settings</a> to highlight them.</p>{% endif %}
+	</div>
+	{% endif %}
+
+	{% if d.keywords %}<div class="mt-3 flex flex-wrap gap-1.5">{% for k in d.keywords[:20] %}<span class="px-2 py-0.5 rounded-full text-[11px] bg-zinc-900 text-zinc-400">{{ k }}</span>{% endfor %}</div>{% endif %}
+	<div class="mt-4 flex flex-wrap gap-2 text-sm">
+		{% if d.trailer %}<button @click="trailer = true" data-key="trailer" class="px-3 py-1.5 rounded-lg bg-accent text-black font-semibold">▶ Trailer</button>{% endif %}
+		{% if d.homepage %}<a href="{{ d.homepage }}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">Website ↗</a>{% endif %}
+		<a href="{{ d.url }}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">TMDB ↗</a>
+		<a href="/recommend?source=title:{{ tconst }}" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">More like this</a>
+	</div>
+	{% if d.trailer %}
+	<template x-if="trailer">
+		<div class="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-4" @click.self="trailer = false" @keydown.escape.window="trailer = false">
+			<div class="w-full max-w-5xl aspect-video"><iframe class="w-full h-full rounded-xl" src="https://www.youtube-nocookie.com/embed/{{ d.trailer }}?autoplay=1" allow="autoplay; encrypted-media; fullscreen" allowfullscreen></iframe></div>
+		</div>
+	</template>
+	{% endif %}
+</div>
+
+{% if d.cast or d.crew %}
+<section id="cast" hx-swap-oob="true" class="mt-10" x-data="{tab: 'cast', q: '', all: false}">
+	<div class="flex flex-wrap items-center gap-1.5 mb-3">
+		<h2 class="text-lg font-semibold mr-3">Cast & crew</h2>
+		<button @click="tab = 'cast'" :class="tab == 'cast' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">Cast <span class="opacity-60">{{ d.cast | length }}</span></button>
+		<button @click="tab = 'crew'" :class="tab == 'crew' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">Crew <span class="opacity-60">{{ d.crew | length }}</span></button>
+		<input x-model="q" placeholder="Filter…" class="ml-auto w-40 rounded-md bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
+	</div>
+	{% for group, people in (('cast', d.cast), ('crew', d.crew | sort(attribute='department'))) %}
+	<div x-show="tab == '{{ group }}'" class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 gap-1">
+		{% for c in people %}
+		{% set role = c.character if group == 'cast' else ((c.department ~ ' · ') if c.department else '') ~ (c.job or '') %}
+		<a href="/go/tmdb/person/{{ c.id }}?name={{ c.name | urlencode }}" x-show="(all || {{ loop.index }} <= 24 || q) && (!q || $el.dataset.s.includes(q.toLowerCase()))" data-s="{{ (c.name ~ ' ' ~ (role or '')) | lower }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
+			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0">{% if c.profile %}<img src="{{ img(c.profile, 'w185') }}" loading="lazy" alt="" class="w-full h-full object-cover">{% endif %}</div>
+			<div class="min-w-0">
+				<div class="text-sm font-medium truncate group-hover:text-accent">{{ c.name }}</div>
+				<div class="text-xs text-zinc-500 truncate">{{ role }}{% if c.episodes %} · {{ c.episodes }} ep{{ 's' if c.episodes != 1 }}{% endif %}</div>
+			</div>
+		</a>
+		{% endfor %}
+	</div>
+	{% endfor %}
+	{% if d.cast | length > 24 or d.crew | length > 24 %}<button x-show="!all && !q" @click="all = true" class="mt-3 px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-sm">Show everyone</button>{% endif %}
+</section>
+{% endif %}
+{% endif %}

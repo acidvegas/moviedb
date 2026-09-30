@@ -1,0 +1,33 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- upcoming.html -->
+
+{% extends 'base.html' %}
+{% block title %}Upcoming{% endblock %}
+{% block content %}
+{% macro release(e) %}
+<a href="/go/tmdb/{{ e.kind }}/{{ e.id }}?name={{ e.title | urlencode }}" data-nav class="group flex gap-3 p-2 rounded-xl hover:bg-zinc-900">
+	<div class="w-16 shrink-0 aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 group-hover:ring-accent/70">{% if e.poster %}<img src="{{ img(e.poster, 'w185') }}" loading="lazy" alt="" class="w-full h-full object-cover">{% endif %}</div>
+	<div class="min-w-0 py-0.5">
+		<div class="text-sm font-semibold leading-tight group-hover:text-accent">{{ e.title }}</div>
+		<div class="mt-0.5 text-xs text-zinc-400">{{ e.date or 'Date TBA' }} · {{ 'TV' if e.kind == 'tv' else 'Movie' }}</div>
+		<div class="mt-1 text-xs text-zinc-500 line-clamp-2">{{ e.people | join(', ') }}</div>
+		{% if e.overview %}<div class="mt-1 text-xs text-zinc-600 line-clamp-2">{{ e.overview }}</div>{% endif %}
+	</div>
+</a>
+{% endmacro %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+	<div><h1 class="text-2xl font-bold">Upcoming</h1><p class="text-sm text-zinc-500">New and upcoming work from the {{ follows | length }} people you follow. Refreshed daily.</p></div>
+</div>
+{% if not follows %}
+<div class="rounded-2xl border border-zinc-800 p-8 text-center text-zinc-400">You aren't following anyone yet. Open a director or actor and press <b class="text-zinc-200">Follow</b>.</div>
+{% else %}
+<div class="grid lg:grid-cols-2 gap-8">
+	<section><h2 class="font-semibold mb-3">Coming up <span class="text-zinc-500 text-sm font-normal">{{ upcoming | length }}</span></h2>{% for e in upcoming %}{{ release(e) }}{% else %}<p class="text-sm text-zinc-500">Nothing announced.</p>{% endfor %}</section>
+	<section><h2 class="font-semibold mb-3">Recently released <span class="text-zinc-500 text-sm font-normal">last 4 months</span></h2>{% for e in recent %}{{ release(e) }}{% else %}<p class="text-sm text-zinc-500">Nothing recent.</p>{% endfor %}</section>
+</div>
+<section class="mt-10">
+	<h2 class="font-semibold mb-3">Following</h2>
+	<div class="flex flex-wrap gap-2">{% for p in follows %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="flex items-center gap-2 pr-3 rounded-full bg-zinc-900 hover:bg-zinc-800 text-sm"><img src="/poster/{{ fmt_id('nm', p.nconst) }}" alt="" loading="lazy" class="w-8 h-8 rounded-full object-cover bg-zinc-800">{{ p.name }}</a>{% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

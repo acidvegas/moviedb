@@ -1,0 +1,10 @@
+{% set v = mine[kind].get(item_id, 0) %}
+<div id="stars-{{ kind }}{{ item_id }}" class="inline-flex items-center gap-2" x-data="{h: 0}">
+	<div class="relative text-2xl leading-none select-none" @mouseleave="h = 0">
+		<div class="text-zinc-700">★★★★★</div>
+		<div class="absolute inset-y-0 left-0 overflow-hidden whitespace-nowrap pointer-events-none" :class="h ? 'text-accent/70' : 'text-accent'" :style="'width:' + ((h || {{ v }}) * 10) + '%'" style="width: {{ v * 10 }}%">★★★★★</div>
+		<div class="absolute inset-0 flex">{% for i in range(1, 11) %}<button data-key="rate-{{ i }}" hx-post="/rate/{{ kind }}/{{ item_id }}" hx-vals='{"rating": {{ i }}}' hx-target="#stars-{{ kind }}{{ item_id }}" hx-swap="outerHTML" @mouseenter="h = {{ i }}" class="flex-1 h-full" title="{{ '%g' | format(i / 2) }} stars"></button>{% endfor %}</div>
+	</div>
+	<span class="text-sm tabular-nums" :class="h ? 'text-zinc-300' : '{{ 'text-accent' if v else 'text-zinc-500' }}'" x-text="h ? (h / 2) + ' ★' : '{{ ('%g ★' | format(v / 2)) if v else 'Rate' }}'">{{ ('%g ★' | format(v / 2)) if v else 'Rate' }}</span>
+	{% if v %}<button data-key="clear-rating" hx-post="/rate/{{ kind }}/{{ item_id }}" hx-vals='{"rating": 0}' hx-target="#stars-{{ kind }}{{ item_id }}" hx-swap="outerHTML" class="text-xs text-zinc-500 hover:text-red-400" title="Clear rating">✕</button>{% endif %}
+</div>

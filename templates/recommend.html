@@ -1,0 +1,41 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- recommend.html -->
+
+{% extends 'base.html' %}
+{% from '_macros.html' import card with context %}
+{% block title %}For you{% endblock %}
+{% block content %}
+{% set sel = 'rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+<div class="flex flex-wrap items-end justify-between gap-4 mb-6">
+	<div>
+		<h1 class="text-2xl font-bold">For you</h1>
+		<p class="text-sm text-zinc-500">{% if seeds %}Based on {{ label or (seeds ~ ' title' ~ ('s' if seeds != 1 else '')) }}. TMDB recommendations blended with shared directors and cast; watched titles are skipped.{% else %}Pick what to base recommendations on.{% endif %}</p>
+	</div>
+</div>
+<form action="/recommend" method="get" class="flex flex-wrap gap-2 mb-6" hx-get="/recommend" hx-trigger="change" hx-target="main" hx-select="main" hx-push-url="true" hx-indicator="#rec-loading">
+	<select name="source" class="{{ sel }}">
+		<optgroup label="Library">
+			<option value="ratings" {{ 'selected' if source == 'ratings' }}>My ratings</option>
+			<option value="watched" {{ 'selected' if source == 'watched' }}>Recently watched</option>
+			<option value="watchlist" {{ 'selected' if source == 'watchlist' }}>My watchlist</option>
+		</optgroup>
+		{% if lists %}<optgroup label="Lists">{% for l in lists %}<option value="list:{{ l.id }}" {{ 'selected' if source == 'list:' ~ l.id }}>{{ l.name }}</option>{% endfor %}</optgroup>{% endif %}
+		{% if source.startswith('title:') %}<optgroup label="Title"><option value="{{ source }}" selected>{{ label }}</option></optgroup>{% endif %}
+	</select>
+	{% if source == 'ratings' %}
+	<select name="min" class="{{ sel }}">{% for v in (10, 9, 8, 7, 6) %}<option value="{{ v }}" {{ 'selected' if stars == v }}>Rated {{ '%g' | format(v / 2) }}★ and up</option>{% endfor %}</select>
+	{% endif %}
+	<select name="kind" class="{{ sel }}">{% for k, lbl in (('all', 'Movies & TV'), ('movies', 'Movies'), ('tv', 'TV')) %}<option value="{{ k }}" {{ 'selected' if kind == k }}>{{ lbl }}</option>{% endfor %}</select>
+	{% if mine.providers %}<label class="flex items-center gap-2 px-3 text-sm cursor-pointer rounded-lg bg-zinc-900 border border-zinc-800"><input type="checkbox" name="services" value="1" {{ 'checked' if services }} class="accent-yellow-400"> On my services</label>{% endif %}
+	<span id="rec-loading" class="htmx-indicator self-center text-sm text-zinc-500 animate-pulse">Thinking…</span>
+</form>
+<p class="mb-4 text-xs text-zinc-500">Tip: open any title and use “More like this” to get recommendations from just that one.</p>
+{% if results %}
+<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
+	{% for r in results %}
+	<div>{{ card(r.t) }}{% if r.because %}<div class="mt-1 text-[11px] text-zinc-500 leading-snug line-clamp-2">Because of {{ r.because | join(' & ') }}</div>{% endif %}</div>
+	{% endfor %}
+</div>
+{% elif seeds %}<p class="text-zinc-500">No recommendations yet. Seed titles need TMDB data; with a TMDB key set it's fetched automatically.</p>
+{% else %}<p class="text-zinc-500">Nothing to base recommendations on yet. Rate, watch, or list some titles first.</p>{% endif %}
+{% endblock %}

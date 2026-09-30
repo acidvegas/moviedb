@@ -1,0 +1,12 @@
+<div id="lb-status" class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm" {% if lb.running %}hx-get="/letterboxd/sync" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+	{% if lb.running %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span><span class="font-medium">{{ lb.step }}</span><span class="text-zinc-500">{{ lb.progress }}</span></div>
+	{% else %}
+	{% if lb.error %}<div class="text-red-400 font-mono text-xs mb-2">{{ lb.error }}</div>{% endif %}
+	{% if result %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="font-medium">Last sync {{ result.time | int | datetime }}</span><span class="text-zinc-500">({{ 'export zip' if result.source == 'export' else 'daily sync' }} · {{ result.user }})</span></div>
+	<div class="mt-1 text-xs text-zinc-400">{{ '{:,}'.format(result.watched) }} watched · {{ '{:,}'.format(result.watchlist) }} watchlist · {{ '{:,}'.format(result.ratings) }} ratings ({{ result.new_ratings }} new)</div>
+	{% if unmatched %}<a href="/letterboxd/fix" class="mt-2 inline-flex items-center gap-1 text-xs text-accent hover:underline">{{ unmatched }} film{{ 's' if unmatched != 1 }} couldn't be matched to IMDb, fix →</a>{% endif %}
+	{% else %}<div class="text-zinc-400">Never synced.</div>{% endif %}
+	{% endif %}
+</div>

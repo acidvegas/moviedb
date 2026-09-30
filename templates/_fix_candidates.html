@@ -1,0 +1,12 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _fix_candidates.html -->
+
+{% from '_macros.html' import years, type_label with context %}
+{% for t in rows %}
+<form hx-post="/letterboxd/fix" hx-target="closest .rounded-2xl" hx-swap="delete" class="flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
+	<input type="hidden" name="key" value="{{ key }}"><input type="hidden" name="tconst" value="{{ t.tconst }}">
+	<img src="/poster/{{ fmt_id('tt', t.tconst) }}" alt="" loading="lazy" class="w-9 h-14 rounded object-cover bg-zinc-800 shrink-0">
+	<a href="/title/{{ fmt_id('tt', t.tconst) }}" target="_blank" class="flex-1 min-w-0"><div class="text-sm truncate">{{ t.primary_title }}</div><div class="text-xs text-zinc-500">{{ years(t) }} · {{ type_label(t.type) }}{% if t.votes %} · {{ '{:,}'.format(t.votes) }} votes{% endif %}</div></a>
+	<button class="px-3 py-1.5 rounded-lg bg-accent hover:bg-accent-dim text-black text-xs font-semibold shrink-0">This one</button>
+</form>
+{% else %}<p class="text-sm text-zinc-500 p-2">No candidates. Try a different search.</p>{% endfor %}

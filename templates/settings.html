@@ -1,0 +1,157 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- settings.html -->
+
+{% extends 'base.html' %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+{% set inp = 'w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+{% set btn = 'shrink-0 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm font-medium' %}
+{% set primary = 'shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold disabled:opacity-40' %}
+{% set card = 'rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden' %}
+{% set head = 'flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-zinc-800' %}
+{% set row = 'grid grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)] gap-2 sm:gap-6 px-5 py-4 border-b border-zinc-800/70 last:border-0' %}
+{% set label = 'text-sm font-medium text-zinc-300 sm:pt-2' %}
+<div class="max-w-4xl mx-auto space-y-6">
+	<h1 class="text-2xl font-bold">Settings</h1>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Letterboxd</h2><p class="text-xs text-zinc-500">Sync watched, watchlist and ratings from your profile</p></div>
+			<button hx-post="/letterboxd/sync" hx-target="#lb-status" hx-swap="outerHTML" class="{{ primary }}">Sync now</button>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Status</div>
+			<div hx-get="/letterboxd/sync" hx-trigger="load" hx-swap="innerHTML"><div id="lb-status"></div></div>
+		</div>
+		<div class="{{ row }}">
+			<label class="{{ label }}" for="lb-user">Username</label>
+			<form action="/settings" method="post" class="flex gap-2">
+				<input id="lb-user" name="letterboxd_user" value="{{ letterboxd_user }}" placeholder="Blank disables the daily sync" class="{{ inp }}">
+				<button class="{{ btn }}">Save</button>
+			</form>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Full import</div>
+			<div>
+				<form hx-post="/letterboxd/import" hx-encoding="multipart/form-data" hx-target="#lb-status" hx-swap="outerHTML" class="flex gap-2" x-data="{file: ''}">
+					<label class="flex-1 min-w-0 flex items-center gap-3 rounded-lg bg-zinc-950 border border-dashed border-zinc-700 hover:border-accent/60 px-3 py-2 text-sm cursor-pointer">
+						<svg class="w-4 h-4 text-zinc-500 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 16V4m0 0l-4 4m4-4l4 4M4 20h16"/></svg>
+						<span class="truncate" :class="file ? 'text-zinc-200' : 'text-zinc-500'" x-text="file || 'Choose export .zip'">Choose export .zip</span>
+						<input type="file" name="export" accept=".zip" required class="hidden" @change="file = $event.target.files[0]?.name || ''">
+					</label>
+					<button class="{{ btn }}" :disabled="!file" :class="!file && 'opacity-40'">Import</button>
+				</form>
+				<p class="mt-2 text-xs text-zinc-500">Download it from letterboxd.com → Settings → Data → Export your data.</p>
+			</div>
+		</div>
+		<details class="group px-5 py-3 text-xs text-zinc-500">
+			<summary class="cursor-pointer list-none flex items-center gap-1.5 hover:text-zinc-300"><svg class="w-3 h-3 transition group-open:rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M7 5l6 5-6 5z"/></svg>How syncing works</summary>
+			<ul class="mt-2 ml-5 list-disc space-y-1">
+				<li><b class="text-zinc-400">Full import</b> replaces watched and watchlist with the export's contents, so local changes are overwritten.</li>
+				<li><b class="text-zinc-400">Daily sync</b> (automatic, or Sync now) mirrors the watchlist and adds your latest 72 watched films. Older watched pages are blocked by Cloudflare unless you're logged in.</li>
+				<li>Letterboxd star ratings are imported only for titles you haven't rated here.</li>
+			</ul>
+		</details>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">TMDB</h2><p class="text-xs text-zinc-500">Posters, headshots, plots, trailers and extra details</p></div>
+			<span class="text-xs px-2.5 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-400' if tmdb_key else 'bg-zinc-800 text-zinc-400' }}">{{ 'Connected' if tmdb_key else 'No key' }}</span>
+		</div>
+		<div class="{{ row }}">
+			<label class="{{ label }}" for="tmdb-key">API key</label>
+			<div>
+				<form action="/settings" method="post" class="flex gap-2" x-data="{show: false}">
+					<div class="relative flex-1">
+						<input id="tmdb-key" name="tmdb_key" value="{{ tmdb_key }}" :type="show ? 'text' : 'password'" type="password" autocomplete="off" placeholder="v3 API key or v4 read access token" class="{{ inp }} pr-14 font-mono">
+						<button type="button" @click="show = !show" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300" x-text="show ? 'Hide' : 'Show'">Show</button>
+					</div>
+					<button class="{{ btn }}">Save</button>
+				</form>
+				<p class="mt-2 text-xs text-zinc-500">Without a key, title posters fall back to Letterboxd (films only) and people get no headshots.</p>
+			</div>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Cache</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">Details</span> <span class="tabular-nums">{{ '{:,}'.format(tmdb_n) }}</span></span>
+				{% for c in cached %}<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">{{ {'tmdb': 'TMDB posters', 'letterboxd': 'Letterboxd posters'}.get(c.source, 'No poster') }}</span> <span class="tabular-nums">{{ '{:,}'.format(c.count) }}</span></span>{% endfor %}
+				<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">Images on disk</span> <span class="tabular-nums">{{ '%.1f' | format(images / 1e9) if images >= 1e9 else '%.0f' | format(images / 1e6) }} {{ 'GB' if images >= 1e9 else 'MB' }}</span></span>
+				<form action="/settings" method="post" class="ml-auto" x-data="{confirm: false}">
+					<input type="hidden" name="clear_posters" value="1">
+					<button type="button" x-show="!confirm" @click="confirm = true" class="{{ btn }}">Clear cache</button>
+					<span x-show="confirm" x-cloak class="flex gap-1"><button class="shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium">Confirm</button><button type="button" @click="confirm = false" class="{{ btn }}">Cancel</button></span>
+				</form>
+			</div>
+		</div>
+	</section>
+
+	<section class="{{ card }}" x-data="{q: '', only: false}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Streaming services</h2><p class="text-xs text-zinc-500">Highlight and filter by the services you subscribe to (US)</p></div>
+			<span class="text-xs px-2.5 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-400' if selected else 'bg-zinc-800 text-zinc-400' }}">{{ selected | length }} selected</span>
+		</div>
+		{% if providers %}
+		<form action="/settings" method="post" class="px-5 py-4">
+			<input type="hidden" name="providers_form" value="1">
+			<div class="flex flex-wrap gap-2 mb-3">
+				<input x-model="q" placeholder="Filter services…" class="{{ inp }} max-w-xs">
+				<label class="flex items-center gap-2 text-sm text-zinc-400 cursor-pointer"><input type="checkbox" x-model="only" class="accent-yellow-400"> Selected only</label>
+				<button class="{{ primary }} ml-auto">Save services</button>
+			</div>
+			<div class="grid grid-cols-[repeat(auto-fill,minmax(9.5rem,1fr))] gap-2 max-h-[26rem] overflow-y-auto pr-1">
+				{% for pr in providers %}
+				<label x-show="(!q || $el.dataset.n.includes(q.toLowerCase())) && (!only || $el.querySelector('input').checked)" data-n="{{ pr.provider_name | lower }}" class="flex items-center gap-2 p-1.5 rounded-lg border border-zinc-800 bg-zinc-950 cursor-pointer has-[:checked]:border-emerald-500/70 has-[:checked]:bg-emerald-500/10">
+					<input type="checkbox" name="provider" value="{{ pr.provider_id }}" {{ 'checked' if pr.provider_id in selected }} class="hidden">
+					<img src="{{ img(pr.logo_path, 'w92') }}" alt="" loading="lazy" class="w-8 h-8 rounded-md shrink-0">
+					<span class="text-xs leading-tight line-clamp-2">{{ pr.provider_name }}</span>
+				</label>
+				{% endfor %}
+			</div>
+		</form>
+		{% else %}<p class="px-5 py-4 text-sm text-zinc-500">Add a TMDB key to load the list of services.</p>{% endif %}
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Offline</h2><p class="text-xs text-zinc-500">Everything is stored on this server, so the site keeps working at home when the internet is down</p></div>
+			<button hx-post="/precache" hx-target="#precache-status" hx-swap="outerHTML" class="{{ primary }}">Pre-cache now</button>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Pre-cache</div>
+			<div>
+				<div hx-get="/precache" hx-trigger="load" hx-swap="innerHTML"><div id="precache-status"></div></div>
+				<p class="mt-2 text-xs text-zinc-500">Downloads posters and full TMDB details for your library, the top 50,000 titles and the top 20,000 people so they work without internet. Runs weekly; already-fresh items are skipped.</p>
+			</div>
+		</div>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">IMDb database</h2><p class="text-xs text-zinc-500">Local copy of the IMDb non-commercial datasets</p></div>
+			<button hx-post="/update" hx-target="#update-status" hx-swap="innerHTML" {{ 'disabled' if status.state == 'running' }} class="{{ primary }}">Check for updates</button>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Status</div>
+			<div id="update-status" hx-get="/update" hx-trigger="load">{% include '_status.html' %}</div>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Database</div>
+			<div class="grid grid-cols-2 gap-3 text-sm">
+				<div class="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2"><div class="text-xs text-zinc-500">Built</div><div class="tabular-nums">{{ meta.built or 'Never' }}</div></div>
+				<div class="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2"><div class="text-xs text-zinc-500">Size</div><div class="tabular-nums">{{ '%.1f GB' | format(size / 1e9) }}</div></div>
+			</div>
+		</div>
+		{% if meta.datasets %}
+		<div class="{{ row }}">
+			<div class="{{ label }}">Dataset versions</div>
+			<div class="rounded-lg border border-zinc-800 divide-y divide-zinc-800/70 text-sm">
+				{% for k, v in json.loads(meta.datasets).items() %}<div class="flex justify-between gap-4 px-3 py-1.5"><span class="font-mono text-xs text-zinc-400 pt-0.5">{{ k }}</span><span class="text-zinc-300 tabular-nums text-xs pt-0.5">{{ v }}</span></div>{% endfor %}
+			</div>
+		</div>
+		{% endif %}
+		<p class="px-5 py-3 text-xs text-zinc-500">Rebuilds automatically once a week. Downloads only changed datasets, builds a new database alongside the live one, then swaps it in atomically. The site stays usable during the ~30 minute build.</p>
+	</section>
+</div>
+{% endblock %}

@@ -1,0 +1,55 @@
+{% macro type_label(type) %}{{ {'movie': 'Movie', 'tvSeries': 'TV Series', 'tvMiniSeries': 'Mini-Series', 'tvMovie': 'TV Movie', 'tvSpecial': 'TV Special', 'short': 'Short', 'tvShort': 'TV Short', 'video': 'Video', 'tvEpisode': 'Episode', 'tvPilot': 'Pilot'}.get(type, type) }}{% endmacro %}
+
+{% macro years(t) %}{% if t.start_year %}{{ t.start_year }}{% if t.end_year %}–{{ t.end_year }}{% elif t.type == 'tvSeries' %}–{% endif %}{% endif %}{% endmacro %}
+
+{% macro rating(t, size='text-xs') %}{% if t.rating %}<span class="{{ size }} inline-flex items-center gap-1 text-zinc-300"><svg class="w-3.5 h-3.5 text-accent" viewBox="0 0 20 20" fill="currentColor"><path d="M10 1.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8L10 14.9l-5.3 2.7 1-5.8L1.5 7.7l5.9-.9z"/></svg>{{ '%.1f'|format(t.rating) }}<span class="text-zinc-500">{{ votes(t.votes) }}</span></span>{% endif %}{% endmacro %}
+
+{% macro votes(n) %}{% if n %}({% if n >= 1000000 %}{{ '%.1fM'|format(n / 1000000) }}{% elif n >= 1000 %}{{ '%dK'|format(n // 1000) }}{% else %}{{ n }}{% endif %}){% endif %}{% endmacro %}
+
+{% macro poster(id, cls='') %}<img src="/poster/{{ id }}" loading="lazy" alt="" class="poster {{ cls }}" onerror="this.style.visibility='hidden'">{% endmacro %}
+
+{% macro badges(tconst) %}
+{% if tconst in mine.watched %}<span class="absolute top-1.5 left-1.5 w-6 h-6 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow" title="Watched"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
+{% elif tconst in mine.watchlist %}<span class="absolute top-1.5 left-1.5 w-6 h-6 rounded-full bg-accent text-black flex items-center justify-center shadow" title="On watchlist"><svg class="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg></span>{% endif %}
+{% if mine.tt.get(tconst) %}<span class="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded bg-black/80 text-accent text-xs font-semibold shadow">★ {{ '%g' | format(mine.tt[tconst] / 2) }}</span>{% endif %}
+{% endmacro %}
+
+{% macro card(t) %}
+<a href="/title/{{ fmt_id('tt', t.tconst) }}" data-nav class="group block">
+	<div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 group-hover:ring-accent/70 transition">
+		{{ poster(fmt_id('tt', t.tconst), 'w-full h-full object-cover group-hover:scale-[1.03] transition duration-300') }}
+		{{ badges(t.tconst) }}
+	</div>
+	<div class="mt-2 text-sm font-medium leading-tight line-clamp-2 group-hover:text-accent">{{ t.primary_title }}</div>
+	<div class="mt-0.5 flex items-center gap-2 text-xs text-zinc-500">{{ years(t) }}{% if t.type != 'movie' %} · {{ type_label(t.type) }}{% endif %}</div>
+	<div class="mt-0.5">{{ rating(t) }}</div>
+</a>
+{% endmacro %}
+
+{% macro grid(items, paged=False, has_next=False, page=1) %}
+<div {% if paged %}id="results"{% endif %} class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">{% for t in items %}{{ card(t) }}{% endfor %}{% if paged %}{{ more(page, has_next) }}{% endif %}</div>
+{% endmacro %}
+
+{% macro more(page, has_next) %}
+{% if has_next %}<div class="col-span-full flex justify-center py-6" hx-get="{{ page_url(page + 1) }}" hx-trigger="revealed" hx-select="#results > *" hx-swap="outerHTML" hx-push-url="false"><span class="text-sm text-zinc-500 animate-pulse">Loading more…</span></div>{% endif %}
+{% endmacro %}
+
+{% macro person_card(p) %}
+<a href="/name/{{ fmt_id('nm', p.nconst) }}" data-nav class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
+	<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0 ring-1 ring-zinc-800 group-hover:ring-accent/70">{{ poster(fmt_id('nm', p.nconst), 'w-full h-full object-cover') }}</div>
+	<div class="min-w-0">
+		<div class="text-sm font-medium truncate group-hover:text-accent">{{ p.name }}</div>
+		<div class="text-xs text-zinc-500 truncate">{{ (p.professions or '').replace('_', ' ').replace(',', ', ') }}{% if p.birth_year %} · b. {{ p.birth_year }}{% endif %}</div>
+	</div>
+</a>
+{% endmacro %}
+
+{% macro pager(page, has_next) %}
+{% if page > 1 or has_next %}
+<div class="flex justify-center gap-2 mt-8 text-sm">
+	{% if page > 1 %}<a href="{{ page_url(page - 1) }}" class="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800">← Prev</a>{% endif %}
+	<span class="px-4 py-2 text-zinc-500">Page {{ page }}</span>
+	{% if has_next %}<a href="{{ page_url(page + 1) }}" class="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800">Next →</a>{% endif %}
+</div>
+{% endif %}
+{% endmacro %}

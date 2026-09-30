@@ -1,0 +1,37 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import grid, type_label with context %}
+{% block title %}Titles{% endblock %}
+{% block content %}
+{% set inp = 'w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+<div class="flex flex-col lg:flex-row gap-6">
+	<aside class="lg:w-64 shrink-0" x-data="{open: window.innerWidth >= 1024}">
+		<button class="lg:hidden w-full mb-2 px-3 py-2 rounded-lg bg-zinc-900 text-sm text-left" @click="open = !open">Filters</button>
+		<form x-show="open" action="/titles" method="get" class="space-y-4 lg:sticky lg:top-20" hx-get="/titles" hx-trigger="change, input from:#f-q delay:400ms" hx-target="main" hx-select="main" hx-push-url="true">
+			<div><label class="text-xs text-zinc-500">Title contains</label><input id="f-q" name="q" value="{{ args.q or '' }}" class="{{ inp }}"></div>
+			<div><label class="text-xs text-zinc-500">Type</label>
+				<select name="type" class="{{ inp }}"><option value="">All (except episodes)</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if args.type == t }}>{{ type_label(t) }}</option>{% endfor %}</select></div>
+			<div><label class="text-xs text-zinc-500">Sort</label>
+				<select name="sort" class="{{ inp }}">{% for s in sorts %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ 'My rating' if s == 'mine' else s | capitalize }}</option>{% endfor %}</select></div>
+			<div><label class="text-xs text-zinc-500">My library</label>
+				<select name="mine" class="{{ inp }}"><option value="">Everything</option>{% for m, label in [('unwatched', 'Hide watched'), ('watched', 'Watched only'), ('watchlist', 'Watchlist only'), ('rated', 'Rated by me')] %}<option value="{{ m }}" {{ 'selected' if args.mine == m }}>{{ label }}</option>{% endfor %}</select></div>
+			{% if mine.providers %}<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="services" value="1" {{ 'checked' if args.services == '1' }} class="accent-yellow-400"> On my streaming services</label>
+			<p class="text-[11px] text-zinc-500 -mt-2">Only titles with cached TMDB data are known. Run a pre-cache in Settings to cover more.</p>{% endif %}
+			<div class="grid grid-cols-2 gap-2">
+				<div><label class="text-xs text-zinc-500">Year from</label><input name="year_from" type="number" value="{{ args.year_from or '' }}" class="{{ inp }}"></div>
+				<div><label class="text-xs text-zinc-500">Year to</label><input name="year_to" type="number" value="{{ args.year_to or '' }}" class="{{ inp }}"></div>
+				<div><label class="text-xs text-zinc-500">Min rating</label><input name="rating" type="number" step="0.1" min="0" max="10" value="{{ args.rating or '' }}" class="{{ inp }}"></div>
+				<div><label class="text-xs text-zinc-500">Min votes</label><input name="votes" type="number" value="{{ args.votes or '' }}" class="{{ inp }}"></div>
+			</div>
+			<div><label class="text-xs text-zinc-500">Genres (all must match)</label>
+				<div class="mt-1 flex flex-wrap gap-1.5">{% set chosen = args.getlist('genre') %}{% for g in genres %}
+					<label class="cursor-pointer"><input type="checkbox" name="genre" value="{{ g }}" class="peer hidden" {{ 'checked' if g in chosen }}><span class="block px-2 py-0.5 rounded-full text-xs border border-zinc-800 text-zinc-400 peer-checked:bg-accent peer-checked:text-black peer-checked:border-accent hover:border-zinc-600">{{ g }}</span></label>
+				{% endfor %}</div></div>
+			<div class="flex gap-2"><button class="flex-1 px-3 py-1.5 rounded-lg bg-accent text-black text-sm font-semibold">Apply</button><a href="/titles" class="px-3 py-1.5 rounded-lg bg-zinc-800 text-sm">Reset</a></div>
+			{% if sort == 'rating' and not args.votes %}<p class="text-xs text-zinc-500">Rating sort hides titles under 1,000 votes unless Min votes is set.</p>{% endif %}
+		</form>
+	</aside>
+	<div class="flex-1 min-w-0">
+		{% if titles %}{{ grid(titles, True, has_next, page) }}{% else %}<p class="text-zinc-500">No titles match these filters.</p>{% endif %}
+	</div>
+</div>
+{% endblock %}

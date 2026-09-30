@@ -1,0 +1,7 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _follow.html -->
+
+{% set following = nconst in mine.follows %}
+<button id="follow-{{ nconst }}" data-key="follow" hx-post="/name/nm{{ nconst }}/follow" hx-target="#follow-{{ nconst }}" hx-swap="outerHTML" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold {{ 'bg-accent text-black' if following else 'bg-zinc-800 hover:bg-zinc-700' }}">
+	<svg class="w-4 h-4" fill="{{ 'currentColor' if following else 'none' }}" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5m6 0a3 3 0 11-6 0"/></svg>{{ 'Following' if following else 'Follow' }}
+</button>

@@ -1,0 +1,10 @@
+.env
+venv/
+__pycache__/
+data/
+imdb.db
+imdb.db.building
+user.db
+user.db-shm
+user.db-wal
+app.log

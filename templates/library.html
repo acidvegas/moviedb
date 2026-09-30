@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import grid, person_card, more with context %}
+{% block title %}Library{% endblock %}
+{% block content %}
+<div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+	{% for key, label, value in [('watchlist', 'Watchlist', counts.watchlist), ('watched', 'Watched', counts.watched), ('ratings', 'Rated titles', counts.rated), ('people', 'Rated people', counts.people)] %}
+	<a href="/library?tab={{ key }}" class="rounded-xl border p-4 {{ 'border-accent/70 bg-accent/5' if tab == key else 'border-zinc-800 hover:border-zinc-600' }}">
+		<div class="text-2xl font-extrabold tabular-nums">{{ '{:,}'.format(value) }}</div><div class="text-xs text-zinc-500">{{ label }}</div>
+	</a>
+	{% endfor %}
+	<div class="rounded-xl border border-zinc-800 p-4"><div class="text-2xl font-extrabold tabular-nums text-accent">{{ '%.2f' | format(counts.avg / 2) if counts.avg else '–' }}</div><div class="text-xs text-zinc-500">Average rating</div></div>
+</div>
+{% if tab in ('ratings', 'people') and histo %}
+{% set peak = histo.values() | max %}
+<div class="flex items-end gap-1 h-24 mb-6 max-w-md">
+	{% for i in range(1, 11) %}
+	<a href="/library?tab={{ tab }}{{ '' if stars == i else '&stars=' ~ i }}" class="group flex-1 flex flex-col items-center justify-end h-full" title="{{ '%g' | format(i / 2) }} ★: {{ histo.get(i, 0) }}">
+		<div class="w-full rounded-t {{ 'bg-accent' if stars == i or not stars else 'bg-zinc-700' }} group-hover:bg-accent" style="height: {{ (histo.get(i, 0) / peak * 100) | round }}%; min-height: 2px"></div>
+		<div class="text-[10px] text-zinc-500 mt-1">{{ '%g' | format(i / 2) }}</div>
+	</a>
+	{% endfor %}
+</div>
+{% endif %}
+<div class="flex flex-wrap items-center gap-2 mb-4 text-sm">
+	<span class="text-zinc-500">{{ '{:,}'.format(total) }} {{ 'people' if tab == 'people' else 'titles' }}{% if stars %} rated {{ '%g' | format(stars / 2) }} ★ <a href="/library?tab={{ tab }}" class="text-accent">clear</a>{% endif %}</span>
+	{% if tab != 'people' and mine.providers %}
+	<a href="/library?tab={{ tab }}&sort={{ sort }}{{ '&stars=' ~ stars if stars else '' }}{{ '' if services else '&services=1' }}" class="px-3 py-1.5 rounded-lg {{ 'bg-emerald-500 text-black font-semibold' if services else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ '✓ ' if services }}On my services</a>
+	{% endif %}
+	{% if tab != 'people' %}
+	<select onchange="htmx.ajax('GET', '/library?tab={{ tab }}{{ '&stars=' ~ stars if stars else '' }}{{ '&services=1' if services else '' }}&sort=' + this.value, {target: 'main', select: 'main', pushUrl: true})" class="ml-auto rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1.5">
+		{% for s, label in [('added', 'Recently added'), ('mine', 'My rating'), ('rating', 'IMDb rating'), ('year', 'Year'), ('title', 'Title')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}
+	</select>
+	{% endif %}
+	<a href="/library/export.csv?tab={{ tab }}" hx-boost="false" class="{{ '' if tab != 'people' else 'ml-auto' }} px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">CSV</a>
+	<a href="/library/export.json?tab={{ tab }}" hx-boost="false" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">JSON</a>
+</div>
+{% if not rows %}<p class="text-zinc-500">Nothing here yet.</p>{% elif tab == 'people' %}
+<div id="results" class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">{% for p in rows %}<div class="min-w-0 flex items-center justify-between gap-2 pr-3 rounded-lg hover:bg-zinc-900">{{ person_card(p) }}<span class="text-accent text-sm shrink-0">★ {{ '%g' | format(p.my_rating / 2) }}</span></div>{% endfor %}{{ more(page, has_next) }}</div>
+{% else %}{{ grid(rows, True, has_next, page) }}{% endif %}
+{% endblock %}

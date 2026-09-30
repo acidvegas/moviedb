@@ -1,0 +1,15 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _precache.html -->
+
+<div id="precache-status" class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm" {% if p.running %}hx-get="/precache" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+	{% if p.running %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span><span class="font-medium">{{ p.step }}</span></div>
+	{% if p.total %}
+	<div class="mt-2 h-1.5 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full bg-accent" style="width: {{ (p.done / p.total * 100) | round(1) }}%"></div></div>
+	<div class="mt-1 text-xs text-zinc-500 tabular-nums">{{ '{:,}'.format(p.done) }} / {{ '{:,}'.format(p.total) }}</div>
+	{% endif %}
+	{% else %}
+	{% if p.error %}<div class="text-red-400 font-mono text-xs mb-1">{{ p.error }}</div>{% endif %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full {{ 'bg-emerald-500' if last else 'bg-zinc-600' }}"></span><span class="font-medium">{{ 'Last run ' ~ (last | int | datetime) if last else 'Never run' }}</span></div>
+	{% endif %}
+</div>

@@ -1,0 +1,22 @@
+{% from '_macros.html' import years, type_label, poster with context %}
+{% if titles or people %}
+<div class="max-h-[70vh] overflow-y-auto divide-y divide-zinc-800">
+	{% if titles %}<div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wider text-zinc-500">Titles</div>{% endif %}
+	{% for t in titles %}
+	<a href="/title/{{ fmt_id('tt', t.tconst) }}" class="flex items-center gap-3 px-3 py-2 hover:bg-zinc-800">
+		<div class="w-8 h-12 rounded overflow-hidden bg-zinc-800 shrink-0">{{ poster(fmt_id('tt', t.tconst), 'w-full h-full object-cover') }}</div>
+		<div class="min-w-0"><div class="text-sm truncate">{{ t.primary_title }}</div><div class="text-xs text-zinc-500">{{ years(t) }} · {{ type_label(t.type) }}{% if t.rating %} · ★ {{ t.rating }}{% endif %}</div></div>
+	</a>
+	{% endfor %}
+	{% if people %}<div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wider text-zinc-500">People</div>{% endif %}
+	{% for p in people %}
+	<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="flex items-center gap-3 px-3 py-2 hover:bg-zinc-800">
+		<div class="w-8 h-8 rounded-full overflow-hidden bg-zinc-800 shrink-0">{{ poster(fmt_id('nm', p.nconst), 'w-full h-full object-cover') }}</div>
+		<div class="min-w-0"><div class="text-sm truncate">{{ p.name }}</div><div class="text-xs text-zinc-500 truncate">{{ (p.professions or '').split(',')[0].replace('_', ' ') }}</div></div>
+	</a>
+	{% endfor %}
+	<a href="/search?q={{ q | urlencode }}" class="block px-3 py-2 text-center text-xs text-accent hover:bg-zinc-800">All results for “{{ q }}” →</a>
+</div>
+{% elif q %}
+<div class="px-3 py-3 text-sm text-zinc-500">No matches.</div>
+{% endif %}

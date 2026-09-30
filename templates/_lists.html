@@ -1,0 +1,19 @@
+<div class="relative" x-data="{open: false}" @click.outside="open = false">
+	<button @click="open = !open" class="px-3 py-1.5 rounded-lg text-sm font-semibold {{ 'bg-accent text-black' if member else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ '✓ In ' ~ member | length ~ ' list' ~ ('s' if member | length > 1) if member else '+ Add to list' }}</button>
+	<div x-show="open" x-transition class="absolute z-30 mt-2 w-64 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl p-2 text-sm">
+		{% for l in lists %}
+		<form hx-post="/title/tt{{ tconst }}/lists" hx-target="#lists-{{ tconst }}" hx-swap="innerHTML">
+			<input type="hidden" name="list_id" value="{{ l.id }}">
+			<button class="w-full flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-zinc-800 text-left">
+				<span class="w-4 h-4 rounded border flex items-center justify-center text-[10px] {{ 'bg-accent border-accent text-black' if l.id in member else 'border-zinc-600' }}">{{ '✓' if l.id in member }}</span>
+				<span class="flex-1 truncate">{{ l.name }}</span><span class="text-xs text-zinc-500">{{ l.count }}</span>
+			</button>
+		</form>
+		{% endfor %}
+		<form hx-post="/lists" hx-target="#lists-{{ tconst }}" hx-swap="innerHTML" class="flex gap-1 mt-1 pt-2 border-t border-zinc-800">
+			<input type="hidden" name="tconst" value="{{ tconst }}">
+			<input name="name" required placeholder="New list…" class="flex-1 min-w-0 rounded-md bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
+			<button class="px-2 rounded-md bg-accent text-black font-semibold">+</button>
+		</form>
+	</div>
+</div>

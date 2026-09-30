@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import poster, years, rating, type_label, badges with context %}
+{% block title %}{{ lst.name }}{% endblock %}
+{% block content %}
+{% set inp = 'w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+<div x-data="{edit: false, confirm: false, view: localStorage.getItem('listView') || 'grid'}" x-init="$watch('view', v => localStorage.setItem('listView', v))">
+	<div class="flex flex-wrap items-start gap-4 mb-6">
+		<div class="flex-1 min-w-0" x-show="!edit">
+			<h1 class="text-2xl font-bold">{{ lst.name }}</h1>
+			{% if lst.description %}<p class="mt-1 text-zinc-400 whitespace-pre-line">{{ lst.description }}</p>{% endif %}
+			<p class="mt-1 text-xs text-zinc-500">{{ titles | length }} titles</p>
+		</div>
+		<form x-show="edit" x-cloak action="/list/{{ lst.id }}/edit" method="post" class="flex-1 min-w-0 space-y-2">
+			<input name="name" value="{{ lst.name }}" required class="{{ inp }}">
+			<textarea name="description" rows="2" class="{{ inp }}">{{ lst.description }}</textarea>
+			<div class="flex gap-2"><button class="px-3 py-1.5 rounded-lg bg-accent text-black text-sm font-semibold">Save</button><button type="button" @click="edit = false" class="px-3 py-1.5 rounded-lg bg-zinc-800 text-sm">Cancel</button></div>
+		</form>
+		<div class="flex flex-wrap gap-2 text-sm">
+			<select onchange="htmx.ajax('GET', '?sort=' + this.value, {target: 'main', select: 'main', pushUrl: true})" class="rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1.5">
+				{% for s, label in [('added', 'Recently added'), ('rating', 'Rating'), ('votes', 'Popularity'), ('year', 'Year'), ('title', 'Title')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}
+			</select>
+			<button @click="view = view == 'grid' ? 'rows' : 'grid'" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700" x-text="view == 'grid' ? 'Rows' : 'Grid'"></button>
+			<button @click="edit = true" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">Edit</button>
+			<a href="/list/{{ lst.id }}/export.csv" hx-boost="false" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">CSV</a>
+			<a href="/list/{{ lst.id }}/export.json" hx-boost="false" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">JSON</a>
+			<button x-show="!confirm" @click="confirm = true" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-red-900 text-red-300">Delete</button>
+			<form x-show="confirm" x-cloak action="/list/{{ lst.id }}/delete" method="post" class="flex gap-1"><button class="px-3 py-1.5 rounded-lg bg-red-600 text-white">Confirm delete</button><button type="button" @click="confirm = false" class="px-3 py-1.5 rounded-lg bg-zinc-800">No</button></form>
+		</div>
+	</div>
+	{% if not titles %}<p class="text-zinc-500">This list is empty. Open any title and use “Add to list”.</p>{% endif %}
+	<div :class="view == 'grid' ? 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4' : 'divide-y divide-zinc-800/70 rounded-xl border border-zinc-800'">
+		{% for t in titles %}
+		<div class="group relative" :class="view == 'rows' && 'flex items-center gap-4 px-3 py-2 hover:bg-zinc-900'">
+			<a href="/title/{{ fmt_id('tt', t.tconst) }}" :class="view == 'rows' ? 'w-10 shrink-0' : 'block'">
+				<div class="relative aspect-[2/3] rounded-lg overflow-hidden bg-zinc-900 ring-1 ring-zinc-800 group-hover:ring-accent/70">{{ poster(fmt_id('tt', t.tconst), 'w-full h-full object-cover') }}<template x-if="view == 'grid'"><div>{{ badges(t.tconst) }}</div></template></div>
+			</a>
+			<a href="/title/{{ fmt_id('tt', t.tconst) }}" class="block min-w-0 flex-1" :class="view == 'grid' && 'mt-2'">
+				<div class="text-sm font-medium leading-tight line-clamp-2 group-hover:text-accent">{{ t.primary_title }}</div>
+				<div class="text-xs text-zinc-500">{{ years(t) }}{% if t.type != 'movie' %} · {{ type_label(t.type) }}{% endif %}</div>
+				<div :class="view == 'rows' && 'hidden'">{{ rating(t) }}</div>
+			</a>
+			<span x-show="view == 'rows'">{{ rating(t) }}</span>
+			<button hx-post="/title/tt{{ t.tconst }}/lists" hx-vals='{"list_id": "{{ lst.id }}"}' hx-target="closest .group" hx-swap="delete" title="Remove"
+				:class="view == 'grid' ? 'absolute top-1.5 right-1.5 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover:opacity-100' : ''"
+				class="w-7 h-7 rounded-full bg-black/70 hover:bg-red-600 text-white text-sm transition">×</button>
+		</div>
+		{% endfor %}
+	</div>
+</div>
+{% endblock %}

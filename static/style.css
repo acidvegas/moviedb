@@ -1,0 +1,10 @@
+[x-cloak] { display: none !important; }
+.poster { background: #18181b; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+.htmx-request main, main.htmx-swapping { opacity: .6; transition: opacity .15s; }
+.kbd { display: inline-block; min-width: 1.4em; padding: 0 .35em; border: 1px solid #3f3f46; border-bottom-width: 2px; border-radius: .3rem; background: #18181b; font: 600 11px/1.6 ui-monospace, monospace; text-align: center; color: #d4d4d8; }
+.toast { left: 50%; transform: translateX(-50%); }
+[data-nav].nav-active { outline: 2px solid #f5c518; outline-offset: 3px; border-radius: .6rem; }
+[hidden] { display: none !important; }

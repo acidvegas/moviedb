@@ -1,0 +1,10 @@
+{% set watched = tconst in mine.watched %}{% set listed = tconst in mine.watchlist %}
+<div id="marks-{{ tconst }}" class="flex flex-wrap items-center gap-2">
+	<button data-key="watched" hx-post="/title/tt{{ tconst }}/mark" hx-vals='{"mark": "watched"}' hx-target="#marks-{{ tconst }}" hx-swap="outerHTML" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold {{ 'bg-emerald-500 text-black' if watched else 'bg-zinc-800 hover:bg-zinc-700' }}">
+		<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>{{ 'Watched' if watched else 'Mark watched' }}
+	</button>
+	<button data-key="watchlist" hx-post="/title/tt{{ tconst }}/mark" hx-vals='{"mark": "watchlist"}' hx-target="#marks-{{ tconst }}" hx-swap="outerHTML" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold {{ 'bg-accent text-black' if listed else 'bg-zinc-800 hover:bg-zinc-700' }}">
+		<svg class="w-4 h-4" fill="{{ 'currentColor' if listed else 'none' }}" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>{{ 'On watchlist' if listed else 'Watchlist' }}
+	</button>
+	<div class="ml-1">{% with kind = 'tt', item_id = tconst %}{% include '_stars.html' %}{% endwith %}</div>
+</div>

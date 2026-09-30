@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import grid, years, rating, type_label, poster with context %}
+{% set nid = fmt_id('nm', person.nconst) %}
+{% block title %}{{ person.name }}{% endblock %}
+{% block description %}{{ (person.professions or '').replace('_', ' ').replace(',', ', ') | capitalize }}{% if person.birth_year %} · Born {{ person.birth_year }}{% endif %}{% if known %} · Known for {{ known[:3] | map(attribute='primary_title') | join(', ') }}{% endif %}{% endblock %}
+{% block og_image %}{{ request.url_root }}poster/{{ nid }}{% endblock %}
+{% block twitter_card %}summary{% endblock %}
+{% block content %}
+<div class="flex flex-col sm:flex-row gap-6">
+	<div class="w-40 shrink-0 mx-auto sm:mx-0"><div class="aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800">{{ poster(nid, 'w-full h-full object-cover') }}</div></div>
+	<div class="flex-1 min-w-0">
+		<h1 class="text-3xl font-extrabold tracking-tight">{{ person.name }}</h1>
+		<div class="mt-1 text-sm text-zinc-400">{{ (person.professions or '').replace('_', ' ').replace(',', ' · ') }}</div>
+		<div class="mt-2 text-sm text-zinc-400">{% if person.birth_year %}Born {{ person.birth_year }}{% endif %}{% if person.death_year %} · Died {{ person.death_year }}{% endif %}</div>
+		<div class="mt-2 text-sm text-zinc-500">{{ '{:,}'.format(person.credits) }} credits</div>
+		<div class="mt-3 flex flex-wrap items-center gap-3">{% with nconst = person.nconst %}{% include '_follow.html' %}{% endwith %}{% with kind = 'nm', item_id = person.nconst %}{% include '_stars.html' %}{% endwith %}</div>
+		<div hx-get="/name/{{ nid }}/tmdb" hx-trigger="load" hx-swap="outerHTML"></div>
+		<div class="mt-4 flex gap-2"><a href="https://www.imdb.com/name/{{ nid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">IMDb ↗</a></div>
+	</div>
+</div>
+{% if known %}<section class="mt-10"><h2 class="text-lg font-semibold mb-3">Known for</h2>{{ grid(known) }}</section>{% endif %}
+<section class="mt-10" x-data="{tab: '{{ groups[0][0] if groups else '' }}', q: ''}">
+	<div class="flex flex-wrap items-center gap-1.5 mb-3">
+		<h2 class="text-lg font-semibold mr-3">Filmography</h2>
+		{% for cat, rows in groups %}<button @click="tab = '{{ cat }}'" :class="tab == '{{ cat }}' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">{{ cat.replace('_', ' ') | capitalize }} <span class="opacity-60">{{ rows | length }}</span></button>{% endfor %}
+		<input x-model="q" placeholder="Filter…" class="ml-auto rounded-md bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
+	</div>
+	{% for cat, rows in groups %}
+	<div x-show="tab == '{{ cat }}'" class="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800">
+		{% for t in rows %}
+		<a href="/title/{{ fmt_id('tt', t.tconst) }}" data-nav x-show="!q || $el.dataset.t.includes(q.toLowerCase())" data-t="{{ t.primary_title | lower }}" class="flex items-center gap-4 px-4 py-2.5 hover:bg-zinc-900">
+			<span class="w-12 text-xs text-zinc-500 tabular-nums">{{ t.start_year or '—' }}</span>
+			<span class="flex-1 min-w-0"><span class="block text-sm truncate">{{ t.primary_title }}</span>
+				<span class="block text-xs text-zinc-500 truncate">{{ type_label(t.type) }}{% if t.characters %} · {{ json.loads(t.characters) | join(' / ') }}{% elif t.job %} · {{ t.job }}{% endif %}</span></span>
+			{% if t.tconst in mine.watched %}<span class="text-emerald-400 text-xs" title="Watched">●</span>{% elif t.tconst in mine.watchlist %}<span class="text-accent text-xs" title="On watchlist">◆</span>{% endif %}
+			{% if mine.tt.get(t.tconst) %}<span class="text-accent text-xs">★ {{ '%g' | format(mine.tt[t.tconst] / 2) }}</span>{% endif %}
+			<span class="w-24 text-right">{{ rating(t) }}</span>
+		</a>
+		{% endfor %}
+	</div>
+	{% endfor %}
+</section>
+{% endblock %}

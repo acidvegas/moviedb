@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>{% block title %}MovieDB{% endblock %}</title>
+	<meta name="description" content="{% block description %}Every IMDb title and credit, searchable and local. Ratings, watchlist and lists.{% endblock %}">
+	<meta name="theme-color" content="#0a0a0b">
+	<link rel="icon" href="/static/icons/icon.svg" type="image/svg+xml">
+	<link rel="icon" href="/static/icons/favicon-32.png" sizes="32x32" type="image/png">
+	<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
+	<link rel="manifest" href="/static/manifest.json">
+	<meta name="apple-mobile-web-app-capable" content="yes">
+	<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+	<meta name="apple-mobile-web-app-title" content="MovieDB">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="MovieDB">
+	<meta property="og:title" content="{{ self.title() }}">
+	<meta property="og:description" content="{{ self.description() }}">
+	<meta property="og:url" content="{{ request.url }}">
+	<meta property="og:image" content="{% block og_image %}{{ request.url_root }}static/icons/og.png{% endblock %}">
+	<meta name="twitter:card" content="{% block twitter_card %}summary_large_image{% endblock %}">
+	<script src="/static/vendor/tailwind.js"></script>
+	<script>tailwind.config = {darkMode: 'class', theme: {extend: {fontFamily: {sans: ['Inter', 'system-ui', 'sans-serif']}, colors: {accent: {DEFAULT: '#f5c518', dim: '#b8940f'}}}}}</script>
+	<link rel="stylesheet" href="/static/vendor/fonts/inter.css">
+	<script src="/static/vendor/htmx.min.js"></script>
+	<script defer src="/static/vendor/alpine.min.js"></script>
+	<link rel="stylesheet" href="/static/style.css">
+	<script defer src="/static/utils.js"></script>
+</head>
+<body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen" hx-boost="true">
+	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
+		<div class="mx-auto max-w-7xl px-4 h-14 flex items-center gap-4">
+			<a href="/" class="font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
+			<nav class="hidden lg:flex gap-1 text-sm">
+				{% set path = request.path %}
+				{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
+				<a href="{{ href }}" class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+				{% endfor %}
+			</nav>
+			<div class="relative ml-auto w-full max-w-md" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
+				<form action="/search" method="get">
+					<input id="quick" name="q" type="search" autocomplete="off" placeholder="Search titles & people…  ( / )" value="{{ q or '' }}"
+						class="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-sm placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-accent/60"
+						hx-get="/search" hx-trigger="input changed delay:250ms, focus" hx-target="#quick-results" hx-push-url="false" @input="open = true" @focus="open = true">
+				</form>
+				<div id="quick-results" x-show="open" x-transition class="absolute right-0 mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl overflow-hidden"></div>
+			</div>
+		</div>
+		<nav class="lg:hidden flex gap-1 text-sm px-4 pb-2 overflow-x-auto">
+			{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
+			<a href="{{ href }}" class="shrink-0 px-3 py-1 rounded-md bg-zinc-900 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+			{% endfor %}
+		</nav>
+	</header>
+	{% if status.state == 'running' %}
+	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}. <a href="/settings" class="underline">Details</a></div>
+	{% endif %}
+	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">{% block content %}{% endblock %}</main>
+	<div id="toast" hidden class="toast fixed bottom-4 z-50 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm shadow-2xl"></div>
+	<div id="keys-help" hidden class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onclick="if (event.target === this) this.hidden = true">
+		<div class="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-5 text-sm">
+			<div class="flex items-center justify-between mb-3"><h2 class="font-semibold">Keyboard shortcuts</h2><kbd class="kbd">Esc</kbd></div>
+			<dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5">
+				<dt><kbd class="kbd">/</kbd></dt><dd>Search</dd>
+				<dt><kbd class="kbd">j</kbd> <kbd class="kbd">k</kbd></dt><dd>Next / previous item</dd>
+				<dt><kbd class="kbd">Enter</kbd></dt><dd>Open selected item</dd>
+				<dt><kbd class="kbd">w</kbd></dt><dd>Toggle watched (title page)</dd>
+				<dt><kbd class="kbd">l</kbd></dt><dd>Toggle watchlist (title page)</dd>
+				<dt><kbd class="kbd">1</kbd>–<kbd class="kbd">5</kbd></dt><dd>Rate stars, hold <kbd class="kbd">Shift</kbd> for half a star less</dd>
+				<dt><kbd class="kbd">0</kbd></dt><dd>Clear rating</dd>
+				<dt><kbd class="kbd">f</kbd></dt><dd>Follow / unfollow (person page)</dd>
+				<dt><kbd class="kbd">t</kbd></dt><dd>Play trailer</dd>
+				<dt><kbd class="kbd">g</kbd> then a key</dt><dd><kbd class="kbd">h</kbd> home <kbd class="kbd">t</kbd> titles <kbd class="kbd">p</kbd> people <kbd class="kbd">r</kbd> for you <kbd class="kbd">u</kbd> upcoming <kbd class="kbd">b</kbd> library <kbd class="kbd">l</kbd> lists <kbd class="kbd">s</kbd> settings</dd>
+				<dt><kbd class="kbd">?</kbd></dt><dd>This help</dd>
+			</dl>
+		</div>
+	</div>
+</body>
+</html>

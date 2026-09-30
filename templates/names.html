@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% from '_macros.html' import person_card, more with context %}
+{% block title %}People{% endblock %}
+{% block content %}
+{% set inp = 'rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+<form action="/names" method="get" class="flex flex-wrap gap-2 mb-6" hx-get="/names" hx-trigger="change, input from:#n-q delay:400ms" hx-target="main" hx-select="main" hx-push-url="true">
+	<input id="n-q" name="q" value="{{ q }}" placeholder="Search people…" class="{{ inp }} flex-1 min-w-[12rem]">
+	<select name="profession" class="{{ inp }}">
+		<option value="">Any profession</option>
+		{% for p in ['actor', 'actress', 'director', 'writer', 'producer', 'composer', 'cinematographer', 'editor', 'casting_director', 'production_designer', 'stunts', 'visual_effects', 'soundtrack'] %}<option value="{{ p }}" {{ 'selected' if profession == p }}>{{ p.replace('_', ' ') | capitalize }}</option>{% endfor %}
+	</select>
+	<select name="sort" class="{{ inp }}">{% for s, label in [('score', 'Popularity'), ('credits', 'Most credits'), ('name', 'Name'), ('born', 'Youngest')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}</select>
+</form>
+{% if people %}<div id="results" class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">{% for p in people %}{{ person_card(p) }}{% endfor %}{{ more(page, has_next) }}</div>{% else %}<p class="text-zinc-500">Nobody found.</p>{% endif %}
+<p class="mt-6 text-xs text-zinc-600">Popularity = total IMDb votes across every title the person is credited on.</p>
+{% endblock %}

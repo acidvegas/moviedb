@@ -1,0 +1,25 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- 404.html -->
+
+{% extends 'base.html' %}
+{% block title %}Not found · MovieDB{% endblock %}
+{% block content %}
+<div class="max-w-xl mx-auto text-center pt-10 sm:pt-20">
+	<div class="relative inline-flex items-center justify-center">
+		<div class="flex gap-1.5 absolute -left-8 top-2 bottom-2 flex-col justify-between">{% for _ in range(5) %}<span class="w-3 h-4 rounded-sm bg-zinc-800"></span>{% endfor %}</div>
+		<div class="text-[7rem] sm:text-[9rem] font-extrabold leading-none tracking-tighter bg-gradient-to-b from-accent to-accent-dim bg-clip-text text-transparent">404</div>
+		<div class="flex gap-1.5 absolute -right-8 top-2 bottom-2 flex-col justify-between">{% for _ in range(5) %}<span class="w-3 h-4 rounded-sm bg-zinc-800"></span>{% endfor %}</div>
+	</div>
+	<h1 class="mt-4 text-2xl font-bold">This reel is missing</h1>
+	<p class="mt-2 text-zinc-400">Nothing lives at <code class="px-1.5 py-0.5 rounded bg-zinc-900 text-zinc-300 text-sm break-all">{{ request.path }}</code>. It may have been cut in the edit.</p>
+	<form action="/search" method="get" class="mt-8 flex gap-2">
+		<input name="q" type="search" autofocus placeholder="Search titles & people…" class="flex-1 min-w-0 rounded-lg bg-zinc-900 border border-zinc-800 px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60">
+		<button class="px-5 py-2.5 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold">Search</button>
+	</form>
+	<div class="mt-4 flex flex-wrap justify-center gap-2 text-sm">
+		<a href="/" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Home</a>
+		<a href="/titles" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Browse titles</a>
+		<a href="/library" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">My library</a>
+	</div>
+</div>
+{% endblock %}
