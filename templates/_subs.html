@@ -1,0 +1,41 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _subs.html -->
+
+{% set tid = fmt_id('tt', tconst) %}
+<section id="subs" class="mt-10">
+	<div class="flex flex-wrap items-center gap-3 mb-3">
+		<h2 class="text-lg font-semibold">Subtitles <span class="text-zinc-500 text-sm font-normal">English</span></h2>
+		{% if keys %}
+		<button hx-get="/title/{{ tid }}/subs?search=1" hx-target="#subs" hx-swap="outerHTML" hx-disabled-elt="this" class="ml-auto px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-40">{{ 'Search again' if results is not none else 'Search' }}</button>
+		{% endif %}
+	</div>
+	{% if error %}<div class="mb-3 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{{ error }}</div>{% endif %}
+	{% if files %}
+	<div class="mb-3 flex flex-wrap gap-2">
+		{% for f in files %}<a href="/title/{{ tid }}/subs/{{ f | urlencode }}" hx-boost="false" class="inline-flex items-center gap-1.5 max-w-full px-3 py-1.5 rounded-lg bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500/25 text-sm"><svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v12m0 0l-4-4m4 4l4-4M4 20h16"/></svg><span class="truncate">{{ f }}</span></a>{% endfor %}
+	</div>
+	{% endif %}
+	{% if not keys %}
+	<p class="text-sm text-zinc-500">Add a SubDL or OpenSubtitles API key in <a href="/settings" class="text-accent hover:underline">Settings</a> to find subtitles.</p>
+	{% elif results is none %}
+	{% if not files %}<p class="text-sm text-zinc-500">Not searched yet.</p>{% endif %}
+	{% elif not results %}
+	<p class="text-sm text-zinc-500">No English subtitles found{% if fetched %} ({{ fetched | int | datetime }}){% endif %}.</p>
+	{% else %}
+	<div class="rounded-xl border border-zinc-800 divide-y divide-zinc-800/70 max-h-96 overflow-y-auto">
+		{% for r in results %}
+		<div class="flex items-center gap-3 px-4 py-2">
+			<span class="flex-1 min-w-0 text-sm truncate" title="{{ r.release }}">{{ r.release }}</span>
+			{% if r.hi %}<span class="shrink-0 px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400" title="Hearing impaired">HI</span>{% endif %}
+			{% if r.downloads %}<span class="shrink-0 text-xs text-zinc-500 tabular-nums">{{ '{:,}'.format(r.downloads) }} dl</span>{% endif %}
+			<span class="shrink-0 text-xs text-zinc-600">{{ 'SubDL' if r.provider == 'subdl' else 'OpenSubtitles' }}</span>
+			{% if r.file in files %}
+			<a href="/title/{{ tid }}/subs/{{ r.file | urlencode }}" hx-boost="false" class="shrink-0 px-3 py-1 rounded-md bg-emerald-500/15 text-emerald-400 text-xs font-medium">Saved</a>
+			{% else %}
+			<button hx-post="/title/{{ tid }}/subs" hx-vals='{{ {"provider": r.provider, "id": r.id, "release": r.release} | tojson }}' hx-target="#subs" hx-swap="outerHTML" hx-disabled-elt="this" class="shrink-0 px-3 py-1 rounded-md bg-accent hover:bg-accent-dim text-black text-xs font-semibold disabled:opacity-40">Get</button>
+			{% endif %}
+		</div>
+		{% endfor %}
+	</div>
+	{% endif %}
+</section>

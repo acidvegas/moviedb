@@ -115,6 +115,47 @@
 
 	<section class="{{ card }}">
 		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Subtitles</h2><p class="text-xs text-zinc-500">English subtitles from SubDL, with OpenSubtitles as a fallback</p></div>
+			<button hx-post="/subs" hx-target="#subs-status" hx-swap="outerHTML" {{ 'disabled' if not (subs.subdl_key or subs.os_key) }} class="{{ primary }}">Fetch now</button>
+		</div>
+		<form action="/settings" method="post" x-data="{show: false}">
+			<div class="{{ row }}">
+				<label class="{{ label }}" for="subdl-key">SubDL key</label>
+				<div>
+					<input id="subdl-key" name="subdl_key" value="{{ subs.subdl_key }}" :type="show ? 'text' : 'password'" type="password" autocomplete="off" class="{{ inp }} font-mono">
+					<p class="mt-2 text-xs text-zinc-500">Free from subdl.com → Account → API.</p>
+				</div>
+			</div>
+			<div class="{{ row }}">
+				<label class="{{ label }}" for="os-key">OpenSubtitles key</label>
+				<div>
+					<input id="os-key" name="os_key" value="{{ subs.os_key }}" :type="show ? 'text' : 'password'" type="password" autocomplete="off" class="{{ inp }} font-mono">
+					<p class="mt-2 text-xs text-zinc-500">Free from opensubtitles.com → Profile → API consumers.</p>
+				</div>
+			</div>
+			<div class="{{ row }}">
+				<div class="{{ label }}">OpenSubtitles login</div>
+				<div>
+					<div class="grid sm:grid-cols-2 gap-2">
+						<input name="os_user" value="{{ subs.os_user }}" placeholder="Username" autocomplete="off" class="{{ inp }}">
+						<input name="os_pass" value="{{ subs.os_pass }}" :type="show ? 'text' : 'password'" type="password" placeholder="Password" autocomplete="new-password" class="{{ inp }}">
+					</div>
+					<p class="mt-2 text-xs text-zinc-500">Optional. Raises downloads from 5 to 20 a day (1000 with VIP).</p>
+					<div class="mt-3 flex gap-2"><button class="{{ btn }}">Save</button><button type="button" @click="show = !show" class="{{ btn }}" x-text="show ? 'Hide keys' : 'Show keys'">Show keys</button></div>
+				</div>
+			</div>
+		</form>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Library prefetch</div>
+			<div>
+				<div hx-get="/subs" hx-trigger="load" hx-swap="innerHTML"><div id="subs-status"></div></div>
+				<p class="mt-2 text-xs text-zinc-500">Downloads the best English subtitle for library titles that have none, using up each provider's daily download quota (SubDL 50, OpenSubtitles 20 on free accounts). Runs again after the quotas reset at midnight UTC. {{ '{:,}'.format(subs.files) }} subtitle files saved on this server.</p>
+			</div>
+		</div>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
 			<div><h2 class="font-semibold">Offline</h2><p class="text-xs text-zinc-500">Everything is stored on this server, so the site keeps working at home when the internet is down</p></div>
 			<button hx-post="/precache" hx-target="#precache-status" hx-swap="outerHTML" class="{{ primary }}">Pre-cache now</button>
 		</div>

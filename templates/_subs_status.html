@@ -1,0 +1,46 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _subs_status.html -->
+
+<div id="subs-status" class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm space-y-3" {% if s.running %}hx-get="/subs" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %}>
+	{% if s.running %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span><span class="font-medium">Fetching library subtitles · {{ s.done }} downloaded</span></div>
+	{% else %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full {{ 'bg-emerald-500' if last else 'bg-zinc-600' }}"></span><span class="font-medium">{{ 'Last run ' ~ (last | int | datetime) if last else 'Never run' }}{% if done != '' %} · {{ done }} downloaded{% endif %}</span></div>
+	{% endif %}
+	{% if s.error %}<div class="text-red-400 font-mono text-xs">{{ s.error }}</div>{% endif %}
+
+	{% if stats.total %}
+	<div>
+		<div class="flex justify-between text-xs text-zinc-400 mb-1.5">
+			<span>Library catch-up</span>
+			<span class="tabular-nums">{{ '{:,}'.format(stats.saved + stats.none) }} / {{ '{:,}'.format(stats.total) }} · {{ ((stats.saved + stats.none) / stats.total * 100) | round(1) }}%</span>
+		</div>
+		<div class="flex h-2 rounded-full bg-zinc-800 overflow-hidden">
+			<div class="bg-emerald-500" style="width: {{ stats.saved / stats.total * 100 }}%"></div>
+			<div class="bg-zinc-500" style="width: {{ stats.none / stats.total * 100 }}%"></div>
+		</div>
+		<div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-xs text-zinc-500 tabular-nums">
+			<span><span class="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1"></span>{{ '{:,}'.format(stats.saved) }} saved</span>
+			<span><span class="inline-block w-2 h-2 rounded-full bg-zinc-500 mr-1"></span>{{ '{:,}'.format(stats.none) }} none found</span>
+			<span><span class="inline-block w-2 h-2 rounded-full bg-zinc-700 mr-1"></span>{{ '{:,}'.format(stats.left) }} to go{% if stats.left and stats.days %} · ~{{ stats.days }} day{{ 's' if stats.days != 1 }}{% endif %}</span>
+		</div>
+	</div>
+	{% endif %}
+
+	<div class="grid sm:grid-cols-2 gap-2">
+		{% for key, name in (('subdl', 'SubDL'), ('os', 'OpenSubtitles')) %}{% set q = quota[key] %}
+		<div class="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2">
+			<div class="flex justify-between text-xs"><span class="text-zinc-400">{{ name }}</span>{% if q.enabled and q.limit %}<span class="tabular-nums {{ 'text-emerald-400' if q.left else 'text-zinc-500' }}">{{ q.left }} / {{ q.limit }} left</span>{% endif %}</div>
+			{% if not q.enabled %}
+			<div class="text-xs text-zinc-600 mt-0.5">{{ 'Add a key and login above' if key == 'os' else 'Add a key above' }}</div>
+			{% elif not q.limit %}
+			<div class="text-xs text-red-400 mt-0.5">Couldn't read quota</div>
+			{% elif q.reset %}
+			<div class="text-xs text-zinc-500 mt-0.5 tabular-nums" x-data="{t: 0, tick() { this.t = Math.max(0, {{ q.reset | int }} - Date.now() / 1000) }}" x-init="tick(); setInterval(() => tick(), 1000)">
+				{{ 'Resets in' if q.left else 'Continues in' }} <span class="text-zinc-300" x-text="t ? new Date(t * 1000).toISOString().substr(11, 8) : 'a moment'"></span>
+			</div>
+			{% endif %}
+		</div>
+		{% endfor %}
+	</div>
+</div>

@@ -13,6 +13,7 @@ import time
 import zipfile
 
 from contextlib   import asynccontextmanager
+from datetime     import datetime
 from html         import unescape
 from pathlib      import Path
 from urllib.parse import urlencode
@@ -45,6 +46,8 @@ TMDB_TTL     = {'tv': 86400, 'movie': 30 * 86400, 'episode': 30 * 86400, 'person
 TMDB_RATE    = 35
 IMG_SIZES    = ('w92', 'w185', 'w342', 'w500', 'w780', 'w1280', 'original')
 PRECACHE     = {'titles': 50_000, 'people': 20_000, 'workers': 12}
+SUBS_DIR     = importer.DATA_DIR / 'subs'
+OS_AGENT     = 'MovieDB v1.0'
 WEEK         = 7 * 86400
 PLACEHOLDER  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"><rect width="2" height="3" fill="#27272a"/></svg>'
 USER_SCHEMA  = '''
@@ -61,10 +64,11 @@ CREATE TABLE IF NOT EXISTS marks           (tconst INTEGER, mark TEXT, added REA
 CREATE TABLE IF NOT EXISTS follows         (nconst INTEGER PRIMARY KEY, added REAL);
 CREATE TABLE IF NOT EXISTS lb_map          (slug TEXT PRIMARY KEY, tconst INTEGER);
 CREATE TABLE IF NOT EXISTS lb_unmatched    (key TEXT PRIMARY KEY, name TEXT, sections TEXT, rating INTEGER);
+CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEXT, fetched REAL);
 '''
 
 app        = Quart(__name__, static_folder='static', template_folder='templates')
-state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'tmdb_last': 0.0, 'tmdb_lock': None}
+state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'tmdb_last': 0.0, 'tmdb_lock': None}
 poster_sem = asyncio.Semaphore(4)
 
 
@@ -417,6 +421,38 @@ async def my_providers() -> list:
 	return json.loads(await setting('providers', '[]'))
 
 
+async def opensubtitles_request(method: str, path: str, auth: bool = False, **kwargs) -> dict:
+	'''
+	Make an OpenSubtitles API request, logging in first when auth is needed and credentials are set. Raises RuntimeError on failure.
+
+	:param method: HTTP method
+	:param path: API path after /api/v1/
+	:param auth: Send the login token (raises the daily download limit from 5 to the account's limit)
+	'''
+
+	headers = {'Api-Key': await setting('os_key'), 'User-Agent': OS_AGENT, 'Accept': 'application/json'}
+
+	if auth and (user := await setting('os_user')):
+		if not state.get('os_token'):
+			login = await opensubtitles_request('POST', 'login', json={'username': user, 'password': await setting('os_pass')})
+			state['os_token'], state['os_host'] = login['token'], login.get('base_url') or 'api.opensubtitles.com'
+		headers['Authorization'] = f'Bearer {state["os_token"]}'
+
+	try:
+		async with state['session'].request(method, f'https://{state.get("os_host", "api.opensubtitles.com")}/api/v1/{path}', headers=headers, **kwargs) as response:
+			data = await response.json(content_type=None)
+	except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
+		raise RuntimeError(f'{type(e).__name__}: {e}') from e
+
+	if response.status == 401 and auth and state.pop('os_token', None):
+		return await opensubtitles_request(method, path, auth, **kwargs)
+
+	if response.status != 200:
+		raise RuntimeError(str(data.get('message') or data.get('errors') or f'HTTP {response.status}') if isinstance(data, dict) else f'HTTP {response.status}')
+
+	return data
+
+
 async def precache():
 	'''Pre-download TMDB details and posters for the library plus the most popular titles and people.'''
 
@@ -561,10 +597,13 @@ async def scheduler():
 
 			if importer.DB_PATH.exists() and read_status().get('state') != 'running' and await setting('tmdb_key') and time.time() - float(await setting('precache_last', '0')) >= WEEK and not state['precache'].get('running'):
 				asyncio.create_task(precache())
+
+			if importer.DB_PATH.exists() and (await setting('subdl_key') or await setting('os_key')) and time.time() // 86400 > float(await setting('subs_last', '0')) // 86400 and not state['subs'].get('running'):
+				asyncio.create_task(subtitle_prefetch())
 		except Exception as e:
 			print(f'scheduler error: {type(e).__name__}: {e}', file=sys.stderr)
 
-		await asyncio.sleep(3600)
+		await asyncio.sleep(min(3600, 86400 - time.time() % 86400 + 60))
 
 
 async def search_titles(fts: str, limit: int, episodes: bool = False) -> list:
@@ -614,6 +653,213 @@ async def start_import():
 		return
 
 	state['update'] = await asyncio.create_subprocess_exec(sys.executable, str(BASE_DIR / 'importer.py'), stdout=open(importer.DATA_DIR / 'importer.log', 'w'), stderr=asyncio.subprocess.STDOUT)
+
+
+async def subtitle_download(tconst: int, provider: str, sub_id: str, release: str) -> Path:
+	'''
+	Download an English subtitle to data/subs/tt.../<release>.srt unless it is already there. Raises RuntimeError on failure.
+
+	:param tconst: Numeric title id
+	:param provider: 'subdl' or 'os'
+	:param sub_id: SubDL download path or OpenSubtitles file id
+	:param release: Release name, used as the file name
+	'''
+
+	path = SUBS_DIR / fmt_id('tt', tconst) / subtitle_name(release)
+
+	if path.exists():
+		return path
+
+	if provider == 'subdl':
+		try:
+			async with state['session'].get(f'https://dl.subdl.com{sub_id}', headers={'User-Agent': USER_AGENT}) as response:
+				if response.status != 200:
+					raise RuntimeError(f'SubDL download returned HTTP {response.status}')
+				body = await response.read()
+		except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+			raise RuntimeError(f'SubDL download failed: {type(e).__name__}') from e
+
+		if not zipfile.is_zipfile(io.BytesIO(body)):
+			raise RuntimeError('SubDL archive is not a zip (probably RAR), try another subtitle')
+
+		with zipfile.ZipFile(io.BytesIO(body)) as archive:
+			names = [n for n in archive.namelist() if n.lower().endswith('.srt')]
+			if not names:
+				raise RuntimeError('SubDL archive has no .srt file')
+			ep = await subtitle_target(tconst)
+			if ep and len(names) > 1:
+				names = [n for n in names if re.search(rf'(?i)s0*{ep["season"]}\s*e0*{ep["episode"]}(?!\d)|\b{ep["season"]}x0*{ep["episode"]}(?!\d)', n)] or names
+			body = archive.read(names[0])
+	elif provider == 'os':
+		link = await opensubtitles_request('POST', 'download', auth=True, json={'file_id': int(sub_id)})
+		try:
+			async with state['session'].get(link['link']) as response:
+				if response.status != 200:
+					raise RuntimeError(f'OpenSubtitles download returned HTTP {response.status}')
+				body = await response.read()
+		except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+			raise RuntimeError(f'OpenSubtitles download failed: {type(e).__name__}') from e
+	else:
+		raise RuntimeError(f'unknown provider {provider}')
+
+	try:
+		body.decode('utf-8')
+	except UnicodeDecodeError:
+		try:
+			body = body.decode('cp1252').encode('utf-8')
+		except UnicodeDecodeError:
+			pass
+
+	path.parent.mkdir(parents=True, exist_ok=True)
+	path.with_suffix('.part').write_bytes(body)
+	path.with_suffix('.part').replace(path)
+
+	return path
+
+
+def subtitle_files(tconst: int) -> list:
+	'''
+	Return the names of the downloaded subtitle files for a title.
+
+	:param tconst: Numeric title id
+	'''
+
+	folder = SUBS_DIR / fmt_id('tt', tconst)
+
+	return sorted(f.name for f in folder.glob('*.srt')) if folder.exists() else []
+
+
+def subtitle_name(release: str) -> str:
+	'''
+	Turn a release name into a safe subtitle file name.
+
+	:param release: Release name
+	'''
+
+	return (re.sub(r'[^\w.\- ]+', '_', release).strip(' ._')[:150] or 'subtitle') + '.srt'
+
+
+async def subtitle_quota() -> dict:
+	'''Return each subtitle provider's daily download quota (left, limit, reset as a unix time) as reported by its API.'''
+
+	quota = {'subdl': {'enabled': bool(await setting('subdl_key')), 'left': 0, 'limit': 0, 'reset': None}, 'os': {'enabled': bool(await setting('os_key') and await setting('os_user')), 'left': 0, 'limit': 0, 'reset': None}}
+
+	if quota['subdl']['enabled']:
+		try:
+			async with state['session'].get('https://api.subdl.com/api/v2/me', headers={'Authorization': f'Bearer {await setting("subdl_key")}'}) as response:
+				data = (await response.json(content_type=None))['usage']['downloads']
+			quota['subdl'] |= {'left': int(data['remaining']), 'limit': int(data['limit']), 'reset': datetime.fromisoformat(data['reset_at']).timestamp()}
+		except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError):
+			pass
+
+	if quota['os']['enabled']:
+		try:
+			data = (await opensubtitles_request('GET', 'infos/user', auth=True))['data']
+			quota['os'] |= {'left': int(data['remaining_downloads']), 'limit': int(data['allowed_downloads']), 'reset': datetime.fromisoformat(data['reset_time_utc']).timestamp()}
+		except (RuntimeError, KeyError, TypeError, ValueError):
+			pass
+
+	return quota
+
+
+async def subtitle_prefetch():
+	'''Download the best English subtitle for library titles that have none, until the providers' daily download quotas run out.'''
+
+	state['subs'] = {'running': True, 'done': 0, 'error': None}
+
+	try:
+		async with user_db() as db:
+			library  = [r[0] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE mark = 'watchlist' UNION SELECT tconst FROM list_items UNION SELECT tconst FROM marks WHERE mark = 'watched'")]
+			searched = {r['tconst']: (json.loads(r['data']), r['fetched']) for r in await db.execute_fetchall('SELECT * FROM subtitles')}
+
+		titles                 = await titles_by_ids(library)
+		state['subs']['quota'] = quota = await subtitle_quota()
+
+		for tconst in library:
+			if not (allowed := tuple(p for p, q in quota.items() if q['left'] > 0)):
+				break
+			if tconst not in titles or titles[tconst]['type'] in ('tvSeries', 'tvMiniSeries') or subtitle_files(tconst):
+				continue
+			results, fetched = searched.get(tconst, (None, 0))
+			fresh            = time.time() - fetched < WEEK
+			if fresh and results == []:
+				continue
+			usable = [r for r in results or [] if r['provider'] in allowed] if fresh else []
+			if not usable:
+				usable = [r for r in await subtitle_search(tconst, allowed) if r['provider'] in allowed]
+			if usable:
+				best = sorted(usable, key=lambda s: s['hi'] or bool(re.search(r'(?i)\b(sdh|hi)\b', s['release'])))[0]
+				try:
+					await subtitle_download(tconst, best['provider'], best['id'], best['release'])
+					state['subs']['done'] += 1
+				except RuntimeError as e:
+					state['subs']['error'] = str(e)
+				quota[best['provider']]['left'] -= 1
+
+		async with user_db() as db:
+			await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('subs_last', str(time.time())), ('subs_done', str(state['subs']['done']))])
+			await db.commit()
+
+		state['subs'] = {'running': False, 'done': state['subs']['done'], 'error': state['subs']['error']}
+	except Exception as e:
+		state['subs'] = {'running': False, 'done': state['subs']['done'], 'error': f'{type(e).__name__}: {e}'}
+
+
+async def subtitle_search(tconst: int, providers: tuple = ('subdl', 'os')) -> list:
+	'''
+	Search SubDL, then OpenSubtitles if SubDL found nothing, for English subtitles, and cache the results. Raises RuntimeError when every provider failed.
+
+	:param tconst: Numeric title id
+	:param providers: Providers to search
+	'''
+
+	ep      = await subtitle_target(tconst)
+	results = []
+	errors  = []
+
+	if 'subdl' in providers and (key := await setting('subdl_key')):
+		params = {'api_key': key, 'languages': 'EN', 'subs_per_page': 30} | ({'imdb_id': fmt_id('tt', ep['parent']), 'type': 'tv', 'season_number': ep['season'], 'episode_number': ep['episode']} if ep else {'imdb_id': fmt_id('tt', tconst), 'type': 'movie'})
+		try:
+			async with state['session'].get('https://api.subdl.com/api/v1/subtitles', params=params) as response:
+				data = await response.json(content_type=None)
+			if response.status != 200:
+				raise RuntimeError(data.get('message') or data.get('error') or f'HTTP {response.status}')
+			results = [{'provider': 'subdl', 'id': s['url'], 'release': s.get('release_name') or s.get('name') or 'subtitle', 'hi': bool(s.get('hi')), 'downloads': None} for s in data.get('subtitles') or [] if s.get('url')]
+		except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, RuntimeError) as e:
+			errors.append(f'SubDL: {e}')
+
+	if not results and 'os' in providers and await setting('os_key'):
+		params = {'languages': 'en'} | ({'parent_imdb_id': ep['parent'], 'season_number': ep['season'], 'episode_number': ep['episode']} if ep else {'imdb_id': tconst})
+		try:
+			data    = await opensubtitles_request('GET', 'subtitles', params=sorted(params.items()))
+			results = [{'provider': 'os', 'id': str(a['files'][0]['file_id']), 'release': a.get('release') or a['files'][0].get('file_name') or 'subtitle', 'hi': bool(a.get('hearing_impaired')), 'downloads': a.get('download_count')} for a in (d['attributes'] for d in data.get('data', [])) if a.get('files')]
+			results.sort(key=lambda s: -(s['downloads'] or 0))
+		except RuntimeError as e:
+			errors.append(f'OpenSubtitles: {e}')
+
+	if not results and errors:
+		raise RuntimeError('; '.join(errors))
+
+	async with user_db() as db:
+		await db.execute('INSERT OR REPLACE INTO subtitles VALUES (?, ?, ?)', (tconst, json.dumps(results), time.time()))
+		await db.commit()
+
+	return results
+
+
+async def subtitle_target(tconst: int):
+	'''
+	Return the parent show, season and episode row for an episode, or None for anything else.
+
+	:param tconst: Numeric title id
+	'''
+
+	rows = await query('SELECT parent, season, episode FROM episodes WHERE tconst = ?', (tconst,))
+
+	if rows and rows[0]['parent'] and rows[0]['season'] is not None and rows[0]['episode'] is not None:
+		return rows[0]
+
+	return None
 
 
 async def titles_by_ids(ids: list) -> dict:
@@ -1446,9 +1692,12 @@ async def settings():
 		form = await request.form
 
 		async with user_db() as db:
-			for key in ('tmdb_key', 'letterboxd_user'):
+			for key in ('tmdb_key', 'letterboxd_user', 'subdl_key', 'os_key', 'os_user', 'os_pass'):
 				if key in form:
 					await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
+			if 'os_user' in form:
+				state.pop('os_token', None)
+				state.pop('os_host', None)
 			if form.get('providers_form'):
 				await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', ('providers', json.dumps([int(p) for p in form.getlist('provider')])))
 			if form.get('clear_posters'):
@@ -1470,7 +1719,9 @@ async def settings():
 	size      = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
 	images    = sum(f.stat().st_size for f in IMAGE_DIR.rglob('*') if f.is_file()) if IMAGE_DIR.exists() else 0
 
-	return await render_template('settings.html', tmdb_key=await setting('tmdb_key'), letterboxd_user=await setting('letterboxd_user'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, providers=providers, selected=set(await my_providers()))
+	subs      = {key: await setting(key) for key in ('subdl_key', 'os_key', 'os_user', 'os_pass')} | {'files': sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0}
+
+	return await render_template('settings.html', tmdb_key=await setting('tmdb_key'), letterboxd_user=await setting('letterboxd_user'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, providers=providers, selected=set(await my_providers()), subs=subs)
 
 
 @app.route('/title/tt<int:tconst>')
@@ -1545,6 +1796,73 @@ async def title_lists(tconst: int) -> str:
 		member = {row['list_id'] for row in await db.execute_fetchall('SELECT list_id FROM list_items WHERE tconst = ?', (tconst,))}
 
 	return await render_template('_lists.html', tconst=tconst, lists=await list_summaries(), member=member)
+
+
+@app.route('/subs', methods=['GET', 'POST'])
+async def subs_route():
+	'''Start the subtitle prefetch (POST) and return its status partial.'''
+
+	if request.method == 'POST' and not state['subs'].get('running'):
+		asyncio.create_task(subtitle_prefetch())
+		await asyncio.sleep(0.3)
+
+	async with user_db() as db:
+		empty = {r[0] for r in await db.execute_fetchall("SELECT tconst FROM subtitles WHERE data = '[]'")}
+
+	library = [r['tconst'] for r in await query("SELECT tconst FROM titles WHERE tconst IN (SELECT tconst FROM u.marks UNION SELECT tconst FROM u.list_items) AND type NOT IN ('tvSeries', 'tvMiniSeries')")]
+	saved   = {int(d.name[2:]) for d in SUBS_DIR.iterdir() if any(d.glob('*.srt'))} if SUBS_DIR.exists() else set()
+	quota   = state['subs']['quota'] if state['subs'].get('running') else await subtitle_quota()
+	daily   = sum(q['limit'] for q in quota.values())
+	stats   = {'total': len(library), 'saved': len(saved & set(library)), 'none': len(empty & set(library) - saved)}
+	stats  |= {'left': stats['total'] - stats['saved'] - stats['none'], 'days': -(-(stats['total'] - stats['saved'] - stats['none']) // daily) if daily else None}
+
+	return await render_template('_subs_status.html', s=state['subs'], last=float(await setting('subs_last', '0')), done=state['subs'].get('done', await setting('subs_done')), quota=quota, stats=stats)
+
+
+@app.route('/title/tt<int:tconst>/subs', methods=['GET', 'POST'])
+async def title_subs(tconst: int):
+	'''
+	Render a title's subtitles: downloaded files plus cached search results. ?search=1 searches the providers, POST downloads one.
+
+	:param tconst: Numeric title id
+	'''
+
+	error = None
+
+	try:
+		if request.method == 'POST':
+			form = await request.form
+			await subtitle_download(tconst, form['provider'], form['id'], form['release'])
+		elif request.args.get('search'):
+			await subtitle_search(tconst)
+	except RuntimeError as e:
+		error = str(e)
+
+	async with user_db() as db:
+		rows = await db.execute_fetchall('SELECT data, fetched FROM subtitles WHERE tconst = ?', (tconst,))
+
+	results = json.loads(rows[0]['data']) if rows else None
+	files   = subtitle_files(tconst)
+
+	for r in results or []:
+		r['file'] = subtitle_name(r['release'])
+
+	return await render_template('_subs.html', tconst=tconst, files=files, results=results, fetched=rows[0]['fetched'] if rows else None, error=error, keys=bool(await setting('subdl_key') or await setting('os_key')))
+
+
+@app.route('/title/tt<int:tconst>/subs/<filename>')
+async def title_subs_file(tconst: int, filename: str):
+	'''
+	Serve a downloaded subtitle file.
+
+	:param tconst: Numeric title id
+	:param filename: File name from subtitle_files()
+	'''
+
+	if filename not in subtitle_files(tconst):
+		abort(404)
+
+	return await send_file(SUBS_DIR / fmt_id('tt', tconst) / filename, mimetype='application/x-subrip', as_attachment=True, attachment_filename=filename)
 
 
 @app.route('/title/tt<int:tconst>/tmdb')

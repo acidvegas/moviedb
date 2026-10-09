@@ -12,6 +12,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - Follow directors and actors to see their upcoming and recent releases
 - Letterboxd sync *(daily watchlist sync plus full import from a Letterboxd export zip)*
 - Filter by the streaming services you subscribe to
+- English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for your library
 - Offline: posters, details and all assets are stored locally and pre-cached for the most popular titles
 - Weekly automatic IMDb rebuilds, swapped in atomically while the site stays up
 - Infinite scroll, keyboard shortcuts *(press `?`)* and a mobile-friendly layout
@@ -22,6 +23,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - Python 3.12+
 - About 20 GB of free disk space *(11 GB database, a temporary copy during rebuilds, plus the image cache)*
 - A free [TMDB API key](https://www.themoviedb.org/settings/api) for posters, plots, credits and streaming data *(optional but recommended)*
+- A free [SubDL](https://subdl.com/) and/or [OpenSubtitles](https://www.opensubtitles.com/en/consumers) API key for subtitles *(optional)*
 
 ## Install
 
@@ -56,16 +58,16 @@ Everything else is set in the web interface under **Settings**.
 
 ## Files
 
-| Path          | Description                                                  |
-|---------------|--------------------------------------------------------------|
-| `app.py`      | Web app *(Quart)*, background scheduler, TMDB and Letterboxd |
-| `importer.py` | Downloads the IMDb datasets and builds `imdb.db`             |
-| `setup.sh`    | Installer and systemd service setup                          |
-| `imdb.db`     | IMDb database, rebuilt weekly                                |
-| `user.db`     | Your ratings, lists, watched/watchlist, settings and caches  |
-| `data/`       | Downloaded datasets, importer status and cached images       |
-| `templates/`  | Page templates                                               |
-| `static/`     | CSS, JS, icons and bundled front-end libraries               |
+| Path          | Description                                                       |
+|---------------|-------------------------------------------------------------------|
+| `app.py`      | Web app *(Quart)*, background scheduler, TMDB and Letterboxd      |
+| `importer.py` | Downloads the IMDb datasets and builds `imdb.db`                  |
+| `setup.sh`    | Installer and systemd service setup                               |
+| `imdb.db`     | IMDb database, rebuilt weekly                                     |
+| `user.db`     | Your ratings, lists, watched/watchlist, settings and caches       |
+| `data/`       | Downloaded datasets, importer status, cached images and subtitles |
+| `templates/`  | Page templates                                                    |
+| `static/`     | CSS, JS, icons and bundled front-end libraries                    |
 
 Back up `user.db`. Everything else can be rebuilt.
 
@@ -74,3 +76,4 @@ Back up `user.db`. Everything else can be rebuilt.
 - [IMDb non-commercial datasets](https://developer.imdb.com/non-commercial-datasets/) *(personal, non-commercial use only)*
 - [TMDB](https://www.themoviedb.org/) for plots, images, credits, trailers and streaming availability *(streaming data provided by JustWatch)*
 - [Letterboxd](https://letterboxd.com/) for watchlist and watched sync, and as a poster fallback
+- [SubDL](https://subdl.com/) and [OpenSubtitles](https://www.opensubtitles.com/) for subtitles

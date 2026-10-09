@@ -58,6 +58,8 @@
 {% endif %}
 </section>
 
+{% if t.type not in ('tvSeries', 'tvMiniSeries') %}<div hx-get="/title/{{ tid }}/subs" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
+
 {% if seasons %}
 <section class="mt-10" x-data="{season: '{{ (seasons | list)[0] }}'}">
 	<h2 class="text-lg font-semibold mb-3">Episodes <span class="text-zinc-500 text-sm font-normal">{{ seasons.values() | map('length') | sum }}</span></h2>
