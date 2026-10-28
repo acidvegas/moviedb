@@ -13,6 +13,8 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - Letterboxd sync *(daily watchlist sync plus full import from a Letterboxd export zip)*
 - Filter by the streaming services you subscribe to
 - English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for your library
+- Links to 28 third-party streaming sites on every title page *(direct links where the site uses TMDB/IMDb ids, otherwise a search)*
+- Top torrents by seeders from a [bitmagnet](https://bitmagnet.io/) instance, with magnet copy and a link to search for more *(optional)*
 - Offline: posters, details and all assets are stored locally and pre-cached for the most popular titles
 - Weekly automatic IMDb rebuilds, swapped in atomically while the site stays up
 - Infinite scroll, keyboard shortcuts *(press `?`)* and a mobile-friendly layout
@@ -24,6 +26,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - About 20 GB of free disk space *(11 GB database, a temporary copy during rebuilds, plus the image cache)*
 - A free [TMDB API key](https://www.themoviedb.org/settings/api) for posters, plots, credits and streaming data *(optional but recommended)*
 - A free [SubDL](https://subdl.com/) and/or [OpenSubtitles](https://www.opensubtitles.com/en/consumers) API key for subtitles *(optional)*
+- A [bitmagnet](https://bitmagnet.io/) instance for torrents *(optional)*
 
 ## Install
 
@@ -31,7 +34,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 ./setup.sh
 ```
 
-This creates a venv, installs the dependencies, writes `.env`, and installs and starts an `moviedb` systemd service. The IMDb database builds on first start, which takes about 30 minutes.
+This creates a venv, installs the dependencies, writes `.env`, and installs and starts a `moviedb` systemd service. The IMDb database builds on first start, which takes about 30 minutes.
 
 Then open `http://<server-ip>:5000`, go to **Settings**, and add your TMDB key, Letterboxd username and streaming services.
 
@@ -77,3 +80,4 @@ Back up `user.db`. Everything else can be rebuilt.
 - [TMDB](https://www.themoviedb.org/) for plots, images, credits, trailers and streaming availability *(streaming data provided by JustWatch)*
 - [Letterboxd](https://letterboxd.com/) for watchlist and watched sync, and as a poster fallback
 - [SubDL](https://subdl.com/) and [OpenSubtitles](https://www.opensubtitles.com/) for subtitles
+- [bitmagnet](https://bitmagnet.io/) *(self-hosted)* for torrents

@@ -16,7 +16,7 @@
 	</div>
 	{% endif %}
 	{% if not keys %}
-	<p class="text-sm text-zinc-500">Add a SubDL or OpenSubtitles API key in <a href="/settings" class="text-accent hover:underline">Settings</a> to find subtitles.</p>
+	<p class="text-sm text-zinc-500">Add a SubDL or OpenSubtitles API key in <a href="/settings" hx-boost="false" class="text-accent hover:underline">Settings</a> to find subtitles.</p>
 	{% elif results is none %}
 	{% if not files %}<p class="text-sm text-zinc-500">Not searched yet.</p>{% endif %}
 	{% elif not results %}

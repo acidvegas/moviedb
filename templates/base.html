@@ -35,7 +35,7 @@
 			<nav class="hidden lg:flex gap-1 text-sm">
 				{% set path = request.path %}
 				{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
-				<a href="{{ href }}" class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+				<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 				{% endfor %}
 			</nav>
 			<div class="relative ml-auto w-full max-w-md" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
@@ -49,12 +49,12 @@
 		</div>
 		<nav class="lg:hidden flex gap-1 text-sm px-4 pb-2 overflow-x-auto">
 			{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
-			<a href="{{ href }}" class="shrink-0 px-3 py-1 rounded-md bg-zinc-900 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+			<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="shrink-0 px-3 py-1 rounded-md bg-zinc-900 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 			{% endfor %}
 		</nav>
 	</header>
 	{% if status.state == 'running' %}
-	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}. <a href="/settings" class="underline">Details</a></div>
+	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}. <a href="/settings" hx-boost="false" class="underline">Details</a></div>
 	{% endif %}
 	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">{% block content %}{% endblock %}</main>
 	<div id="toast" hidden class="toast fixed bottom-4 z-50 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm shadow-2xl"></div>
