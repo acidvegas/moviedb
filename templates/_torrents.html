@@ -1,0 +1,22 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _torrents.html -->
+
+{% if error %}
+<p class="text-xs text-red-400">{{ error }}</p>
+{% elif not torrents %}
+<p class="text-xs text-zinc-500">No torrents found.</p>
+{% else %}
+<div class="divide-y divide-zinc-800/70">
+	{% for t in torrents %}
+	<div class="flex items-center gap-2 py-1.5 text-xs">
+		<a href="{{ t.magnet }}" title="{{ t.title }}" class="flex-1 min-w-0 truncate hover:text-accent">{{ t.title }}</a>
+		{% if t.resolution %}<span class="shrink-0 px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-zinc-400">{{ t.resolution }}</span>{% endif %}
+		<span class="shrink-0 w-16 text-right tabular-nums text-zinc-500">{{ '%.1f GB' | format(t.size / 1e9) if t.size >= 1e9 else '%.0f MB' | format(t.size / 1e6) }}</span>
+		<span class="shrink-0 w-10 text-right tabular-nums text-emerald-400" title="Seeders">↑{{ t.seeders }}</span>
+		<span class="shrink-0 w-10 text-right tabular-nums text-zinc-500" title="Leechers">↓{{ t.leechers }}</span>
+		<button type="button" data-magnet="{{ t.magnet }}" onclick="copyText(this.dataset.magnet, 'Magnet link copied')" title="Copy magnet link" class="shrink-0 px-2 py-0.5 rounded bg-zinc-800 hover:bg-zinc-700 text-zinc-400">Copy</button>
+	</div>
+	{% endfor %}
+</div>
+{% endif %}
+{% if search %}<a href="{{ search }}" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1.5 text-xs text-zinc-400 hover:text-accent"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>Search for more on bitmagnet{% if total %} ({{ '{:,}'.format(total) }}{{ '+' if total >= 1000 }} results){% endif %} ↗</a>{% endif %}

@@ -12,11 +12,13 @@ import sys
 import time
 import zipfile
 
+import xml.etree.ElementTree as ElementTree
+
 from contextlib   import asynccontextmanager
 from datetime     import datetime
 from html         import unescape
 from pathlib      import Path
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 try:
 	import aiohttp
@@ -49,6 +51,36 @@ PRECACHE     = {'titles': 50_000, 'people': 20_000, 'workers': 12}
 SUBS_DIR     = importer.DATA_DIR / 'subs'
 OS_AGENT     = 'MovieDB v1.0'
 WEEK         = 7 * 86400
+STREAM_SITES = [
+	('1Shows',       'https://www.1shows.org',         '/movies/{tmdb}',               '/tv/{tmdb}',               None),
+	('321Movies',    'https://321movies.co.uk',        '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('67movies',     'https://67movies.st',            '/details/movie/{tmdb}',        '/details/tv/{tmdb}',       None),
+	('7reels',       'https://7reels.cc',              None,                           None,                       '/search?q={q}'),
+	('ApexMovies',   'https://apexmovies.net',         None,                           None,                       '/?s={q}'),
+	('Bcine',        'https://freekz.to',              '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('Bingeflix',    'https://bingeflix.tv',           '/movie/{tmdb}/details',        '/tv/{tmdb}/details',       '/search?q={q}'),
+	('Cinecat',      'https://cinecat.eu',             '/media/tmdb-movie-{tmdb}',     '/media/tmdb-tv-{tmdb}',    None),
+	('Cinejoy',      'https://cinejoy.pk',             '/watch/movie/{tmdb}',          '/watch/tv/{tmdb}/1/1',     '/search/{q}'),
+	('Cinema.army',  'https://cinema.army',            None,                           None,                       '/search?q={q}'),
+	('CineWave',     'https://watch.cinewave.qzz.io',  '/details/movie/{tmdb}',        '/details/tv/{tmdb}',       None),
+	('Cinezo',       'https://cinezo.st',              '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('CornClick',    'https://cornclick.com',          None,                           None,                       '/search?q={q}'),
+	('Donkey',       'https://donkey.to',              None,                           None,                       '/media/search?query={q}'),
+	('Filmex',       'https://filmex.to',              '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('FshareTV',     'https://fsharetv.co',            '/movie/{imdb}',                None,                       '/search?q={q}'),
+	('Koddo',        'https://koddo.to',               None,                           None,                       '/en/search?q={q}'),
+	('LatestMovies', 'https://latestmovies.net',       '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('LookMovie',    'https://www.lookmovie2.to',      '/movies/search/?q={q}',        '/shows/search/?q={q}',     None),
+	('M-Zone',       'https://m-zone.cc',              '/details/movie/{tmdb}',        '/details/tv/{tmdb}',       None),
+	('Mapple',       'https://mapple.fun',             '/movie/{tmdb}',                '/tv/{tmdb}',               None),
+	('Movish',       'https://movish.to',              None,                           None,                       '/search/{q}'),
+	('PressPlay',    'https://pressplayz.top',         '/watch/movie/{tmdb}',          '/watch/tv/{tmdb}',         None),
+	('Redflix',      'https://redflix.one',            '/play?id={tmdb}&type=movie',   None,                       None),
+	('Reelix',       'https://reelix.ac',              None,                           None,                       '/search/{q}'),
+	('Screenopps',   'https://screenopps.com',         '/details/movie/{tmdb}/1',      '/details/tv/{tmdb}/1',     None),
+	('Shiopa',       'https://shiopa.com',             '/watch/{tmdb}?type=movie',     '/watch/{tmdb}?type=tv',    None),
+	('Smashystream', 'https://smashystream.xyz',       '/movie/{tmdb}',                '/tv/{tmdb}',               None)
+]
 PLACEHOLDER  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"><rect width="2" height="3" fill="#27272a"/></svg>'
 USER_SCHEMA  = '''
 PRAGMA journal_mode = WAL;
@@ -68,8 +100,9 @@ CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEX
 '''
 
 app        = Quart(__name__, static_folder='static', template_folder='templates')
-state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'tmdb_last': 0.0, 'tmdb_lock': None}
+state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None}
 poster_sem = asyncio.Semaphore(4)
+tasks      = set()
 
 
 async def download(url: str, path: Path) -> bool:
@@ -191,6 +224,12 @@ def fts_query(text: str) -> str:
 	'''
 
 	return ' '.join(f'"{token}"*' for token in re.findall(r'\w+', text))
+
+
+async def image_usage():
+	'''Total the size of the image cache in a thread, so walking tens of thousands of files never blocks requests.'''
+
+	state['images'] = await asyncio.to_thread(lambda: sum(f.stat().st_size for f in IMAGE_DIR.rglob('*') if f.is_file()) if IMAGE_DIR.exists() else 0)
 
 
 async def imdb_db() -> aiosqlite.Connection:
@@ -596,10 +635,10 @@ async def scheduler():
 				await start_import()
 
 			if importer.DB_PATH.exists() and read_status().get('state') != 'running' and await setting('tmdb_key') and time.time() - float(await setting('precache_last', '0')) >= WEEK and not state['precache'].get('running'):
-				asyncio.create_task(precache())
+				spawn(precache())
 
 			if importer.DB_PATH.exists() and (await setting('subdl_key') or await setting('os_key')) and time.time() // 86400 > float(await setting('subs_last', '0')) // 86400 and not state['subs'].get('running'):
-				asyncio.create_task(subtitle_prefetch())
+				spawn(subtitle_prefetch())
 		except Exception as e:
 			print(f'scheduler error: {type(e).__name__}: {e}', file=sys.stderr)
 
@@ -641,6 +680,18 @@ async def setting(key: str, default: str = '') -> str:
 	return rows[0]['value'] if rows else default
 
 
+def spawn(coro):
+	'''
+	Run a coroutine in the background, keeping a reference so it is not garbage collected mid-run.
+
+	:param coro: Coroutine to run
+	'''
+
+	task = asyncio.create_task(coro)
+	tasks.add(task)
+	task.add_done_callback(tasks.discard)
+
+
 async def start_import():
 	'''Start the IMDb importer in a subprocess if enough disk space is free.'''
 
@@ -652,7 +703,39 @@ async def start_import():
 		importer.STATUS_PATH.write_text(json.dumps({'state': 'error', 'step': 'Not started', 'rows': 0, 'progress': '', 'started': time.time(), 'finished': time.time(), 'error': f'not enough disk space: {free / 1e9:.1f} GB free, {need / 1e9:.1f} GB needed'}))
 		return
 
-	state['update'] = await asyncio.create_subprocess_exec(sys.executable, str(BASE_DIR / 'importer.py'), stdout=open(importer.DATA_DIR / 'importer.log', 'w'), stderr=asyncio.subprocess.STDOUT)
+	with open(importer.DATA_DIR / 'importer.log', 'w') as log:
+		state['update'] = await asyncio.create_subprocess_exec(sys.executable, str(BASE_DIR / 'importer.py'), stdout=log, stderr=asyncio.subprocess.STDOUT)
+
+
+async def stream_links(tconst: int, d: dict | None) -> list:
+	'''
+	Build third-party streaming links: the site's own page from the TMDB/IMDb id when it has one, otherwise a search for the title.
+
+	:param tconst: Numeric title id
+	:param d: TMDB details from tmdb_details()
+	'''
+
+	rows = await query('SELECT t.primary_title, t.type, p.primary_title AS show FROM titles t LEFT JOIN episodes e ON e.tconst = t.tconst LEFT JOIN titles p ON p.tconst = e.parent WHERE t.tconst = ?', (tconst,))
+
+	if not rows:
+		return []
+
+	tv    = rows[0]['type'] in ('tvSeries', 'tvMiniSeries', 'tvEpisode')
+	name  = quote(rows[0]['show'] or rows[0]['primary_title'])
+	tmdb  = (d or {}).get('tmdb_id')
+	links = []
+
+	if (d or {}).get('kind') == 'episode':
+		tmdb = int(m.group(1)) if (m := re.search(r'/tv/(\d+)', d['url'])) else None
+
+	for site, base, movie, show, search in STREAM_SITES:
+		path = show if tv else movie
+		if path and ('{tmdb}' not in path or tmdb):
+			links.append({'site': site, 'url': base + path.format(tmdb=tmdb, imdb=fmt_id('tt', tconst), q=name), 'direct': '{q}' not in path})
+		elif search:
+			links.append({'site': site, 'url': base + search.format(q=name), 'direct': False})
+
+	return links
 
 
 async def subtitle_download(tconst: int, provider: str, sub_id: str, release: str) -> Path:
@@ -692,13 +775,16 @@ async def subtitle_download(tconst: int, provider: str, sub_id: str, release: st
 			body = archive.read(names[0])
 	elif provider == 'os':
 		link = await opensubtitles_request('POST', 'download', auth=True, json={'file_id': int(sub_id)})
-		try:
-			async with state['session'].get(link['link']) as response:
-				if response.status != 200:
-					raise RuntimeError(f'OpenSubtitles download returned HTTP {response.status}')
-				body = await response.read()
-		except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-			raise RuntimeError(f'OpenSubtitles download failed: {type(e).__name__}') from e
+		for attempt in range(3):
+			try:
+				async with state['session'].get(link['link']) as response:
+					if response.status != 200:
+						raise RuntimeError(f'OpenSubtitles download returned HTTP {response.status}')
+					body = await response.read()
+				break
+			except (aiohttp.ClientError, asyncio.TimeoutError) as e:
+				if attempt == 2:
+					raise RuntimeError(f'OpenSubtitles download failed: {type(e).__name__}') from e
 	else:
 		raise RuntimeError(f'unknown provider {provider}')
 
@@ -755,7 +841,7 @@ async def subtitle_quota() -> dict:
 	if quota['os']['enabled']:
 		try:
 			data = (await opensubtitles_request('GET', 'infos/user', auth=True))['data']
-			quota['os'] |= {'left': int(data['remaining_downloads']), 'limit': int(data['allowed_downloads']), 'reset': datetime.fromisoformat(data['reset_time_utc']).timestamp()}
+			quota['os'] |= {'left': int(data['remaining_downloads']), 'limit': int(data['allowed_downloads']), 'reset': datetime.fromisoformat(data['reset_time_utc']).timestamp() if data.get('reset_time_utc') else None}
 		except (RuntimeError, KeyError, TypeError, ValueError):
 			pass
 
@@ -774,6 +860,7 @@ async def subtitle_prefetch():
 
 		titles                 = await titles_by_ids(library)
 		state['subs']['quota'] = quota = await subtitle_quota()
+		had_quota              = any(q['left'] for q in quota.values())
 
 		for tconst in library:
 			if not (allowed := tuple(p for p, q in quota.items() if q['left'] > 0)):
@@ -796,9 +883,10 @@ async def subtitle_prefetch():
 					state['subs']['error'] = str(e)
 				quota[best['provider']]['left'] -= 1
 
-		async with user_db() as db:
-			await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('subs_last', str(time.time())), ('subs_done', str(state['subs']['done']))])
-			await db.commit()
+		if had_quota:
+			async with user_db() as db:
+				await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('subs_last', str(time.time())), ('subs_done', str(state['subs']['done']))])
+				await db.commit()
 
 		state['subs'] = {'running': False, 'done': state['subs']['done'], 'error': state['subs']['error']}
 	except Exception as e:
@@ -1077,6 +1165,41 @@ async def tmdb_request(path: str, key: str, params: dict | None = None) -> dict 
 	return None
 
 
+async def torrent_search(tconst: int) -> tuple:
+	'''
+	Search bitmagnet's Torznab API by IMDb id (episodes search their show). Returns the 10 torrents with the most seeders, the total match count, and a web UI search URL. Raises RuntimeError on failure.
+
+	:param tconst: Numeric title id
+	'''
+
+	rows = await query('SELECT t.type, t.primary_title, e.parent, p.primary_title AS show FROM titles t LEFT JOIN episodes e ON e.tconst = t.tconst LEFT JOIN titles p ON p.tconst = e.parent WHERE t.tconst = ?', (tconst,))
+
+	if not rows:
+		return [], 0, None
+
+	base  = (await setting('bm_url')).rstrip('/')
+	url   = base + '/torznab/api'
+	auth  = aiohttp.BasicAuth(await setting('bm_user'), await setting('bm_pass')) if await setting('bm_user') else None
+	kind  = 'tvsearch' if rows[0]['parent'] or rows[0]['type'] in ('tvSeries', 'tvMiniSeries') else 'movie'
+	items = []
+
+	for offset in range(0, 1000, 100):
+		try:
+			async with state['session'].get(url, params={'t': kind, 'imdbid': fmt_id('tt', rows[0]['parent'] or tconst), 'offset': offset}, auth=auth, headers={'User-Agent': USER_AGENT}) as response:
+				if response.status != 200:
+					raise RuntimeError(f'bitmagnet returned HTTP {response.status}')
+				page = ElementTree.fromstring(await response.read()).findall('./channel/item')
+		except (aiohttp.ClientError, asyncio.TimeoutError, ElementTree.ParseError) as e:
+			raise RuntimeError(f'bitmagnet request failed: {type(e).__name__}') from e
+		for item in page:
+			attrs = {a.get('name'): a.get('value') for a in item.findall('{http://torznab.com/schemas/2015/feed}attr')}
+			items.append({'title': item.findtext('title'), 'size': int(attrs.get('size') or 0), 'seeders': int(attrs.get('seeders') or 0), 'leechers': int(attrs.get('leechers') or 0), 'resolution': attrs.get('resolution'), 'magnet': attrs.get('magneturl')})
+		if len(page) < 100:
+			break
+
+	return sorted(items, key=lambda t: -t['seeders'])[:10], len(items), f'{base}/webui/torrents?{urlencode({"query": rows[0]["show"] or rows[0]["primary_title"]})}'
+
+
 @asynccontextmanager
 async def user_db():
 	'''Open a connection to the user database (lists, settings, caches).'''
@@ -1094,9 +1217,14 @@ async def startup():
 		await db.executescript(USER_SCHEMA)
 		await db.commit()
 
+	if (status := read_status()).get('state') == 'running':
+		importer.STATUS_PATH.write_text(json.dumps(status | {'state': 'error', 'finished': time.time(), 'error': 'interrupted by an app restart'}))
+
 	state['session']   = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
 	state['tmdb_lock'] = asyncio.Lock()
 	state['scheduler'] = asyncio.create_task(scheduler())
+	state['images_at'] = time.time()
+	spawn(image_usage())
 
 
 @app.after_serving
@@ -1282,7 +1410,7 @@ async def lb_import():
 	upload = (await request.files).get('export')
 
 	if upload and not state['lb'].get('running'):
-		asyncio.create_task(letterboxd_import(upload.read()))
+		spawn(letterboxd_import(upload.read()))
 		await asyncio.sleep(0.3)
 
 	return await lb_status()
@@ -1293,7 +1421,7 @@ async def lb_sync():
 	'''Start a Letterboxd sync (POST) and return the sync status partial.'''
 
 	if request.method == 'POST' and not state['lb'].get('running'):
-		asyncio.create_task(letterboxd_sync())
+		spawn(letterboxd_sync())
 		await asyncio.sleep(0.3)
 
 	return await lb_status()
@@ -1597,7 +1725,7 @@ async def precache_route():
 	'''Start the offline pre-cache (POST) and return its status partial.'''
 
 	if request.method == 'POST' and not state['precache'].get('running'):
-		asyncio.create_task(precache())
+		spawn(precache())
 		await asyncio.sleep(0.3)
 
 	return await render_template('_precache.html', p=state['precache'], last=float(await setting('precache_last', '0')))
@@ -1692,7 +1820,7 @@ async def settings():
 		form = await request.form
 
 		async with user_db() as db:
-			for key in ('tmdb_key', 'letterboxd_user', 'subdl_key', 'os_key', 'os_user', 'os_pass'):
+			for key in ('tmdb_key', 'letterboxd_user', 'subdl_key', 'os_key', 'os_user', 'os_pass', 'bm_url', 'bm_user', 'bm_pass'):
 				if key in form:
 					await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
 			if 'os_user' in form:
@@ -1705,6 +1833,7 @@ async def settings():
 				await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
 				await db.execute('DELETE FROM title_providers')
 				shutil.rmtree(IMAGE_DIR, ignore_errors=True)
+				state['images_at'] = 0.0
 			await db.commit()
 
 		return redirect('/settings')
@@ -1717,11 +1846,15 @@ async def settings():
 	providers = sorted((providers or {}).get('results', []), key=lambda p: p.get('display_priorities', {}).get('US', 999))
 	meta      = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
 	size      = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
-	images    = sum(f.stat().st_size for f in IMAGE_DIR.rglob('*') if f.is_file()) if IMAGE_DIR.exists() else 0
+	images    = state['images']
+
+	if time.time() - state['images_at'] >= 600:
+		state['images_at'] = time.time()
+		spawn(image_usage())
 
 	subs      = {key: await setting(key) for key in ('subdl_key', 'os_key', 'os_user', 'os_pass')} | {'files': sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0}
 
-	return await render_template('settings.html', tmdb_key=await setting('tmdb_key'), letterboxd_user=await setting('letterboxd_user'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, providers=providers, selected=set(await my_providers()), subs=subs)
+	return await render_template('settings.html', tmdb_key=await setting('tmdb_key'), letterboxd_user=await setting('letterboxd_user'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, providers=providers, selected=set(await my_providers()), subs=subs, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
 
 
 @app.route('/title/tt<int:tconst>')
@@ -1803,7 +1936,7 @@ async def subs_route():
 	'''Start the subtitle prefetch (POST) and return its status partial.'''
 
 	if request.method == 'POST' and not state['subs'].get('running'):
-		asyncio.create_task(subtitle_prefetch())
+		spawn(subtitle_prefetch())
 		await asyncio.sleep(0.3)
 
 	async with user_db() as db:
@@ -1873,7 +2006,25 @@ async def title_tmdb(tconst: int):
 	:param tconst: Numeric title id
 	'''
 
-	return await render_template('_tmdb_title.html', d=await tmdb_details(fmt_id('tt', tconst)), tconst=tconst)
+	d = await tmdb_details(fmt_id('tt', tconst))
+
+	return await render_template('_tmdb_title.html', d=d, tconst=tconst, streams=await stream_links(tconst, d), torrents=bool(await setting('bm_url')))
+
+
+@app.route('/title/tt<int:tconst>/torrents')
+async def title_torrents(tconst: int):
+	'''
+	Render the top torrents for a title from bitmagnet.
+
+	:param tconst: Numeric title id
+	'''
+
+	try:
+		torrents, total, search = await torrent_search(tconst)
+	except RuntimeError as e:
+		return await render_template('_torrents.html', torrents=[], total=0, search=None, error=str(e))
+
+	return await render_template('_torrents.html', torrents=torrents, total=total, search=search, error=None)
 
 
 @app.route('/titles')

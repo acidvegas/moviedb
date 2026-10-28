@@ -7,6 +7,17 @@ function toast(message) {
 	el._timer = setTimeout(() => el.hidden = true, 3500);
 }
 
+// Copy text to the clipboard (execCommand, since navigator.clipboard needs HTTPS)
+function copyText(text, message) {
+	const el = document.createElement('textarea');
+	el.value = text;
+	document.body.appendChild(el);
+	el.select();
+	document.execCommand('copy');
+	el.remove();
+	toast(message);
+}
+
 // Surface failed htmx requests instead of silently doing nothing
 document.addEventListener('htmx:sendError', () => toast("Couldn't reach the server, change not saved"));
 document.addEventListener('htmx:responseError', e => toast(e.detail.xhr.status === 503 ? "Server unavailable, change not saved" : `Request failed (${e.detail.xhr.status})`));
