@@ -34,17 +34,26 @@
 			<a href="/" class="h-14 flex items-center font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
 			<nav class="hidden lg:flex gap-1 text-sm">
 				{% set path = request.path %}
-				{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] if user else []) + ([('/admin', 'Admin')] if user and user.admin else []) %}
-				<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+				{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists')] if user else []) %}
+				<a href="{{ href }}" class="px-3 py-1.5 rounded-md whitespace-nowrap hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 				{% endfor %}
 			</nav>
 			<div class="hidden lg:flex order-last items-center gap-2 text-sm shrink-0">
 				{% if user %}
-				<span class="text-zinc-400">{{ user.name }}</span>
-				<form action="/logout" method="post" hx-boost="false"><button class="px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log out</button></form>
+				<div class="relative" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
+					<button type="button" @click="open = !open" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md whitespace-nowrap hover:bg-zinc-800 {{ 'text-accent' if path.startswith('/settings') or path.startswith('/admin') else 'text-zinc-300' }}">
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>{{ user.name }}
+						<svg class="w-3 h-3 transition" :class="open && 'rotate-180'" fill="currentColor" viewBox="0 0 20 20"><path d="M5 7l5 6 5-6z"/></svg>
+					</button>
+					<div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-44 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl p-1.5 text-zinc-300">
+						<a href="/settings" hx-boost="false" class="block px-3 py-2 rounded-md hover:bg-zinc-800">Settings</a>
+						{% if user.admin %}<a href="/admin" class="block px-3 py-2 rounded-md hover:bg-zinc-800">Admin</a>{% endif %}
+						<form action="/logout" method="post" hx-boost="false" class="border-t border-zinc-800 mt-1 pt-1"><button class="w-full text-left px-3 py-2 rounded-md hover:bg-zinc-800">Log out</button></form>
+					</div>
+				</div>
 				{% else %}
-				<a href="/login" class="px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log in</a>
-				<a href="/register" class="px-3 py-1.5 rounded-md bg-accent hover:bg-accent-dim text-black font-semibold">Register</a>
+				<a href="/login" class="px-3 py-1.5 rounded-md whitespace-nowrap bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log in</a>
+				<a href="/register" class="px-3 py-1.5 rounded-md whitespace-nowrap bg-accent hover:bg-accent-dim text-black font-semibold">Register</a>
 				{% endif %}
 			</div>
 			<div class="ml-auto flex items-center gap-1 lg:hidden">
