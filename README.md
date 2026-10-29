@@ -1,5 +1,7 @@
 # MovieDB
 
+## Live demo: [movies.supernets.org](https://movies.supernets.org)
+
 A self-hosted movie and TV browser built on the full IMDb datasets. Everything lives on your own server, so it keeps working at home even when the internet is down.
 
 ## Features
