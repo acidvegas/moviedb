@@ -29,16 +29,25 @@
 	<script defer src="/static/utils.js"></script>
 </head>
 <body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen" hx-boost="true">
-	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur">
-		<div class="mx-auto max-w-7xl px-4 h-14 flex items-center gap-4">
-			<a href="/" class="font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
+	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur" x-data="{search: false, menu: false}">
+		<div class="mx-auto max-w-7xl px-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4">
+			<a href="/" class="h-14 flex items-center font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
 			<nav class="hidden lg:flex gap-1 text-sm">
 				{% set path = request.path %}
 				{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
 				<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 				{% endfor %}
 			</nav>
-			<div class="relative ml-auto w-full max-w-md" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
+			<div class="ml-auto flex items-center gap-1 lg:hidden">
+				<button type="button" aria-label="Search" class="p-2 rounded-md hover:bg-zinc-800" :class="search ? 'text-accent' : 'text-zinc-300'" @click="search = !search; menu = false; search && $nextTick(() => document.getElementById('quick').focus())">
+					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+				</button>
+				<button type="button" aria-label="Menu" class="p-2 rounded-md hover:bg-zinc-800" :class="menu ? 'text-accent' : 'text-zinc-300'" @click="menu = !menu; search = false">
+					<svg x-show="!menu" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+					<svg x-show="menu" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+				</button>
+			</div>
+			<div class="relative w-full order-last pb-2 lg:order-none lg:pb-0 lg:ml-auto lg:max-w-md hidden lg:block" :class="search && '!block'" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
 				<form action="/search" method="get">
 					<input id="quick" name="q" type="search" autocomplete="off" placeholder="Search titles & people…  ( / )" value="{{ q or '' }}"
 						class="w-full rounded-lg bg-zinc-900 border border-zinc-800 px-3 py-1.5 text-sm placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-accent/60"
@@ -47,9 +56,9 @@
 				<div id="quick-results" x-show="open" x-transition class="absolute right-0 mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl overflow-hidden"></div>
 			</div>
 		</div>
-		<nav class="lg:hidden flex gap-1 text-sm px-4 pb-2 overflow-x-auto">
+		<nav x-show="menu" x-cloak x-transition class="lg:hidden flex flex-col gap-1 text-sm px-4 py-2 border-t border-zinc-800/80">
 			{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
-			<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="shrink-0 px-3 py-1 rounded-md bg-zinc-900 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+			<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-2 rounded-md hover:bg-zinc-800 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 			{% endfor %}
 		</nav>
 	</header>
