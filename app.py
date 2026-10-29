@@ -82,8 +82,8 @@ STREAM_SITES = [
 	('Smashystream', 'https://smashystream.xyz',       '/movie/{tmdb}',                '/tv/{tmdb}',               None)
 ]
 PLACEHOLDER  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"><rect width="2" height="3" fill="#27272a"/></svg>'
-NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="none" stroke="#52525b" stroke-width="5" stroke-linejoin="round"><rect x="66" y="106" width="68" height="56" rx="7"/><path d="M84 106v56M116 106v56M66 125h18M66 143h18M116 125h18M116 143h18"/></g><text x="100" y="198" fill="#71717a" font-family="Inter,system-ui,sans-serif" font-size="17" font-weight="600" text-anchor="middle">No cover</text></svg>'
-NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
+NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="none" stroke="#52525b" stroke-width="5" stroke-linejoin="round"><rect x="66" y="106" width="68" height="56" rx="7"/><path d="M84 106v56M116 106v56M66 125h18M66 143h18M116 125h18M116 143h18"/></g><text x="100" y="198" fill="#71717a" font-family="Inter,system-ui,sans-serif" font-size="17" font-weight="600" text-anchor="middle">No cover</text></svg>'
+NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
 USER_SCHEMA  = '''
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS lists           (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', created REAL, updated REAL);
@@ -1813,6 +1813,11 @@ async def search():
 	titles   = await search_titles(fts, limit, types=types) if kind != 'people' else []
 	people   = await query('SELECT n.* FROM names_fts f JOIN names n ON n.nconst = f.rowid WHERE names_fts MATCH ? ORDER BY n.score DESC LIMIT ?', (fts, limit)) if kind in ('all', 'people') else []
 	episodes = await search_titles(fts, limit, episodes=True) if full and kind in ('all', 'tv') else []
+
+	if noimg:
+		found  = await asyncio.gather(*(ensure_poster(fmt_id('tt', t['tconst'])) for t in titles), *(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
+		people = [p for p, path in zip(people, found[len(titles):]) if path]
+		titles = [t for t, path in zip(titles, found) if path]
 
 	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, kind=kind, noimg=noimg)
 
