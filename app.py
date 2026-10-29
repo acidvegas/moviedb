@@ -1352,9 +1352,8 @@ async def index():
 	popular = await query("SELECT * FROM titles WHERE type = 'movie' ORDER BY votes DESC LIMIT 12")
 	recent  = await query("SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? ORDER BY votes DESC LIMIT 12", (year - 1,))
 	series  = await query("SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') ORDER BY votes DESC LIMIT 12")
-	stats   = await query("SELECT (SELECT count(*) FROM titles) AS titles, (SELECT count(*) FROM names) AS names, (SELECT value FROM meta WHERE key = 'built') AS built")
 
-	return await render_template('index.html', popular=popular, recent=recent, series=series, stats=stats[0])
+	return await render_template('index.html', popular=popular, recent=recent, series=series)
 
 
 @app.route('/letterboxd/fix', methods=['GET', 'POST'])
