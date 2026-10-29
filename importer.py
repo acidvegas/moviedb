@@ -19,7 +19,7 @@ DATASET_URL  = 'https://datasets.imdbws.com'
 DATASETS     = ['title.basics', 'title.ratings', 'title.episode', 'title.akas', 'title.crew', 'title.principals', 'name.basics']
 SKIP_TYPES   = {'videoGame'}
 AKA_REGIONS  = {'US', 'GB'}
-USER_AGENT   = 'moviedb (https://github.com/acidvegas/moviedb)'
+USER_AGENT   = 'MovieDB/1.0'
 BATCH_SIZE   = 100_000
 
 SCHEMA = '''
