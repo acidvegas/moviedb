@@ -1580,43 +1580,29 @@ async def account():
 	return redirect('/settings?account=changed')
 
 
-@app.route('/admin', methods=['GET', 'POST'])
+@app.route('/admin', methods=['POST'])
 @require(admin=True)
 async def admin():
-	'''Manage accounts and registration (POST applies an action).'''
+	'''Apply an account or registration action from the admin part of Settings.'''
 
-	if request.method == 'POST':
-		form    = await request.form
-		action  = form.get('action')
-		user_id = form.get('user_id', 0, type=int)
+	form    = await request.form
+	action  = form.get('action')
+	user_id = form.get('user_id', 0, type=int)
 
-		if action == 'delete' and user_id != 1:
-			await delete_user(user_id)
-
-		async with user_db() as db:
-			if action == 'registration':
-				await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('registration', 'open' if form.get('registration') else 'closed'), ('approval', '1' if form.get('approval') else '0')])
-			elif action == 'approve':
-				await db.execute('UPDATE users SET approved = 1 WHERE id = ?', (user_id,))
-			elif action == 'password' and user_id != 1 and 6 <= len(password := form.get('password', '')) <= 100:
-				await db.execute('UPDATE users SET password = ? WHERE id = ?', (await asyncio.to_thread(password_hash, password), user_id))
-				await db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
-			await db.commit()
-
-		return redirect('/admin')
+	if action == 'delete' and user_id != 1:
+		await delete_user(user_id)
 
 	async with user_db() as db:
-		users = await db.execute_fetchall('''
-			SELECT u.id, u.name, u.admin, u.approved, u.created,
-				(SELECT count(*) FROM lists WHERE user_id = u.id) AS lists,
-				(SELECT count(*) FROM ratings WHERE user_id = u.id) AS ratings,
-				(SELECT count(*) FROM marks WHERE user_id = u.id) AS marks,
-				EXISTS (SELECT 1 FROM subtitle_keys k WHERE k.user_id = u.id AND (k.subdl_key != '' OR k.os_key != '')) AS sub_keys,
-				(SELECT max(expires) FROM sessions WHERE user_id = u.id) - ? AS last_login
-			FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
-		''', (SESSION_AGE,))
+		if action == 'registration':
+			await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('registration', 'open' if form.get('registration') else 'closed'), ('approval', '1' if form.get('approval') else '0')])
+		elif action == 'approve':
+			await db.execute('UPDATE users SET approved = 1 WHERE id = ?', (user_id,))
+		elif action == 'password' and user_id != 1 and 6 <= len(password := form.get('password', '')) <= 100:
+			await db.execute('UPDATE users SET password = ? WHERE id = ?', (await asyncio.to_thread(password_hash, password), user_id))
+			await db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
+		await db.commit()
 
-	return await render_template('admin.html', users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'))
+	return redirect('/settings#accounts')
 
 
 @app.route('/captcha/<token>.svg')
@@ -2311,6 +2297,15 @@ async def settings():
 	async with user_db() as db:
 		cached = await db.execute_fetchall('SELECT source, count(*) AS count FROM posters GROUP BY source')
 		tmdb_n = (await db.execute_fetchall("SELECT count(*) AS n FROM tmdb WHERE data IS NOT NULL AND (id LIKE 'tt%' OR id LIKE 'nm%')"))[0]['n']
+		users  = await db.execute_fetchall('''
+			SELECT u.id, u.name, u.admin, u.approved, u.created,
+				(SELECT count(*) FROM lists WHERE user_id = u.id) AS lists,
+				(SELECT count(*) FROM ratings WHERE user_id = u.id) AS ratings,
+				(SELECT count(*) FROM marks WHERE user_id = u.id) AS marks,
+				EXISTS (SELECT 1 FROM subtitle_keys k WHERE k.user_id = u.id AND (k.subdl_key != '' OR k.os_key != '')) AS sub_keys,
+				(SELECT max(expires) FROM sessions WHERE user_id = u.id) - ? AS last_login
+			FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
+		''', (SESSION_AGE,))
 
 	meta   = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
 	size   = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
@@ -2322,7 +2317,7 @@ async def settings():
 
 	subs['files'] = sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0
 
-	return await render_template('settings.html', **page, tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
+	return await render_template('settings.html', **page, users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'), tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
 
 
 @app.route('/title/tt<int:tconst>')
