@@ -82,8 +82,8 @@ STREAM_SITES = [
 	('Smashystream', 'https://smashystream.xyz',       '/movie/{tmdb}',                '/tv/{tmdb}',               None)
 ]
 PLACEHOLDER  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"><rect width="2" height="3" fill="#27272a"/></svg>'
-NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="none" stroke="#52525b" stroke-width="5" stroke-linejoin="round"><rect x="66" y="106" width="68" height="56" rx="7"/><path d="M84 106v56M116 106v56M66 125h18M66 143h18M116 125h18M116 143h18"/></g><text x="100" y="198" fill="#71717a" font-family="Inter,system-ui,sans-serif" font-size="17" font-weight="600" text-anchor="middle">No cover</text></svg>'
-NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
+NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="none" stroke="#52525b" stroke-width="5" stroke-linejoin="round"><rect x="66" y="106" width="68" height="56" rx="7"/><path d="M84 106v56M116 106v56M66 125h18M66 143h18M116 125h18M116 143h18"/></g><text x="100" y="198" fill="#71717a" font-family="Inter,system-ui,sans-serif" font-size="17" font-weight="600" text-anchor="middle">No cover</text></svg>'
+NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" width="2" height="3" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
 USER_SCHEMA  = '''
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS lists           (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', created REAL, updated REAL);
@@ -647,25 +647,26 @@ async def scheduler():
 		await asyncio.sleep(min(3600, 86400 - time.time() % 86400 + 60))
 
 
-async def search_titles(fts: str, limit: int, episodes: bool = False) -> list:
+async def search_titles(fts: str, limit: int, episodes: bool = False, types: tuple = ()) -> list:
 	'''
 	Search titles by FTS, trying the small popular index first so common words stay fast.
 
 	:param fts: FTS5 query
 	:param limit: Maximum results
 	:param episodes: Search episodes instead of titles
+	:param types: Only these title types (all when empty)
 	'''
 
 	if episodes:
 		sql = 'SELECT t.*, e.season, e.episode, p.primary_title AS parent_title, p.tconst AS parent FROM {0} f JOIN titles t ON t.tconst = f.rowid JOIN episodes e ON e.tconst = t.tconst LEFT JOIN titles p ON p.tconst = e.parent WHERE {0} MATCH ? ORDER BY t.votes DESC LIMIT ?'
 		tables = ('episodes_pop_fts', 'episodes_fts')
 	else:
-		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ? ORDER BY t.votes DESC LIMIT ?'
+		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ?' + (f' AND t.type IN ({",".join("?" * len(types))})' if types else '') + ' ORDER BY t.votes DESC LIMIT ?'
 		tables = ('titles_pop_fts', 'titles_fts')
 
-	rows = await query(sql.format(tables[0]), (fts, limit))
+	rows = await query(sql.format(tables[0]), (fts, *types, limit))
 
-	return rows if len(rows) >= limit else await query(sql.format(tables[1]), (fts, limit))
+	return rows if len(rows) >= limit else await query(sql.format(tables[1]), (fts, *types, limit))
 
 
 async def setting(key: str, default: str = '') -> str:
@@ -1798,19 +1799,22 @@ async def recommend():
 async def search():
 	'''Global search across titles and people; returns a dropdown partial for htmx requests.'''
 
-	q    = request.args.get('q', '').strip()
-	fts  = fts_query(q)
-	full = 'HX-Request' not in request.headers or request.headers.get('HX-Boosted')
+	q     = request.args.get('q', '').strip()
+	fts   = fts_query(q)
+	full  = 'HX-Request' not in request.headers or request.headers.get('HX-Boosted')
+	kind  = request.args.get('kind', 'all') if full else 'all'
+	noimg = full and request.args.get('noimg') == '1'
 
 	if not fts:
-		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[])
+		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[], kind=kind, noimg=noimg)
 
 	limit    = 30 if full else 6
-	titles   = await search_titles(fts, limit)
-	people   = await query('SELECT n.* FROM names_fts f JOIN names n ON n.nconst = f.rowid WHERE names_fts MATCH ? ORDER BY n.score DESC LIMIT ?', (fts, limit))
-	episodes = await search_titles(fts, limit, episodes=True) if full else []
+	types    = {'movies': ('movie', 'tvMovie'), 'tv': ('tvSeries', 'tvMiniSeries')}.get(kind, ())
+	titles   = await search_titles(fts, limit, types=types) if kind != 'people' else []
+	people   = await query('SELECT n.* FROM names_fts f JOIN names n ON n.nconst = f.rowid WHERE names_fts MATCH ? ORDER BY n.score DESC LIMIT ?', (fts, limit)) if kind in ('all', 'people') else []
+	episodes = await search_titles(fts, limit, episodes=True) if full and kind in ('all', 'tv') else []
 
-	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes)
+	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, kind=kind, noimg=noimg)
 
 
 @app.route('/settings', methods=['GET', 'POST'])

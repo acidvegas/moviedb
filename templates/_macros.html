@@ -6,7 +6,7 @@
 
 {% macro votes(n) %}{% if n %}({% if n >= 1000000 %}{{ '%.1fM'|format(n / 1000000) }}{% elif n >= 1000 %}{{ '%dK'|format(n // 1000) }}{% else %}{{ n }}{% endif %}){% endif %}{% endmacro %}
 
-{% macro poster(id, cls='') %}<img src="/poster/{{ id }}" loading="lazy" alt="" class="poster {{ cls }}" onerror="this.style.visibility='hidden'">{% endmacro %}
+{% macro poster(id, cls='') %}<img src="/poster/{{ id }}" loading="lazy" alt="" class="poster {{ cls }}" onerror="this.style.visibility='hidden'" onload="if (this.naturalWidth < 10) this.closest('[data-nav]')?.classList.add('no-img')">{% endmacro %}
 
 {% macro badges(tconst) %}
 {% if tconst in mine.watched %}<span class="absolute top-1.5 left-1.5 w-6 h-6 rounded-full bg-emerald-500 text-black flex items-center justify-center shadow" title="Watched"><svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg></span>
