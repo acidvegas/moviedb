@@ -218,12 +218,12 @@ def fmt_id(prefix: str, value: int) -> str:
 
 def fts_query(text: str) -> str:
 	'''
-	Convert free text to an FTS5 prefix query.
+	Convert free text to an FTS5 prefix query, keeping punctuated words like V/H/S as one phrase.
 
 	:param text: User search text
 	'''
 
-	return ' '.join(f'"{token}"*' for token in re.findall(r'\w+', text))
+	return ' '.join(f'"{" ".join(tokens)}"*' for word in text.split() if (tokens := re.findall(r'\w+', word)))
 
 
 async def image_usage():
