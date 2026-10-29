@@ -82,6 +82,8 @@ STREAM_SITES = [
 	('Smashystream', 'https://smashystream.xyz',       '/movie/{tmdb}',                '/tv/{tmdb}',               None)
 ]
 PLACEHOLDER  = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2 3"><rect width="2" height="3" fill="#27272a"/></svg>'
+NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="none" stroke="#52525b" stroke-width="5" stroke-linejoin="round"><rect x="66" y="106" width="68" height="56" rx="7"/><path d="M84 106v56M116 106v56M66 125h18M66 143h18M116 125h18M116 143h18"/></g><text x="100" y="198" fill="#71717a" font-family="Inter,system-ui,sans-serif" font-size="17" font-weight="600" text-anchor="middle">No cover</text></svg>'
+NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
 USER_SCHEMA  = '''
 PRAGMA journal_mode = WAL;
 CREATE TABLE IF NOT EXISTS lists           (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', created REAL, updated REAL);
@@ -1716,7 +1718,7 @@ async def poster(imdb_id: str):
 	if path := await ensure_poster(imdb_id):
 		return await send_file(path, mimetype='image/jpeg', cache_timeout=30 * 86400)
 
-	return Response(PLACEHOLDER, mimetype='image/svg+xml', headers={'Cache-Control': 'max-age=3600'})
+	return Response(NO_COVER if imdb_id.startswith('tt') else NO_PHOTO, mimetype='image/svg+xml', headers={'Cache-Control': 'max-age=3600'})
 
 
 @app.route('/precache', methods=['GET', 'POST'])
