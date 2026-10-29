@@ -31,11 +31,6 @@
 <body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen" hx-boost="true">
 	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur" x-data="{search: false, menu: false}">
 		<div class="mx-auto max-w-7xl px-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4">
-			{% if request.path != '/' %}
-			<button type="button" aria-label="Back" class="lg:hidden -ml-2 -mr-3 p-2 rounded-md text-zinc-300 hover:bg-zinc-800" onclick="history.length > 1 ? history.back() : location.href = '/'">
-				<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>
-			</button>
-			{% endif %}
 			<a href="/" class="h-14 flex items-center font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
 			<nav class="hidden lg:flex gap-1 text-sm">
 				{% set path = request.path %}
@@ -70,7 +65,14 @@
 	{% if status.state == 'running' %}
 	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}. <a href="/settings" hx-boost="false" class="underline">Details</a></div>
 	{% endif %}
-	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">{% block content %}{% endblock %}</main>
+	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">
+		{% if request.path != '/' %}
+		<button type="button" aria-label="Back" class="lg:hidden -mt-3 mb-3 -ml-1 flex items-center gap-1 text-sm text-zinc-400 hover:text-accent" onclick="history.length > 1 ? history.back() : location.href = '/'">
+			<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg>Back
+		</button>
+		{% endif %}
+		{% block content %}{% endblock %}
+	</main>
 	<div id="toast" hidden class="toast fixed bottom-4 z-50 px-4 py-2 rounded-lg bg-zinc-800 border border-zinc-700 text-sm shadow-2xl"></div>
 	<div id="keys-help" hidden class="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" onclick="if (event.target === this) this.hidden = true">
 		<div class="w-full max-w-md rounded-2xl border border-zinc-800 bg-zinc-900 p-5 text-sm">
