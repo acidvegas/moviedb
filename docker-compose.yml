@@ -1,0 +1,12 @@
+# moviedb - Developed by acidvegas in YAML (https://github.com/acidvegas)
+# docker-compose.yml
+
+services:
+  moviedb:
+    build: .
+    container_name: moviedb
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:20000:5000
+    volumes:
+      - ./:/app

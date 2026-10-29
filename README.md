@@ -40,6 +40,15 @@ This creates a venv, installs the dependencies, writes `.env`, and installs and 
 
 Set `ADMIN_PASSWORD` in `.env`, restart the service, then open `http://<server-ip>:5000`, log in as `admin`, add your TMDB key under **Admin**, then your Letterboxd username and streaming services under **Settings**.
 
+## Docker
+
+```sh
+cp .env.example .env
+docker compose up -d --build
+```
+
+The repo folder is mounted into the container, so `imdb.db`, `user.db` and `data/` stay in it across rebuilds. The app listens on `127.0.0.1:20000` for a reverse proxy in front.
+
 ## Running manually
 
 ```sh
@@ -69,6 +78,7 @@ Everything else is set in the web interface: per-account options under **Setting
 | `app.py`      | Web app *(Quart)*, background scheduler, TMDB and Letterboxd      |
 | `importer.py` | Downloads the IMDb datasets and builds `imdb.db`                  |
 | `setup.sh`    | Installer and systemd service setup                               |
+| `Dockerfile`  | Container image *(used by `docker-compose.yml`)*                  |
 | `imdb.db`     | IMDb database, rebuilt weekly                                     |
 | `user.db`     | Accounts, ratings, lists, watched/watchlist, settings and caches  |
 | `data/`       | Downloaded datasets, importer status, cached images and subtitles |
@@ -84,3 +94,7 @@ Back up `user.db`. Everything else can be rebuilt.
 - [Letterboxd](https://letterboxd.com/) for watchlist and watched sync, and as a poster fallback
 - [SubDL](https://subdl.com/) and [OpenSubtitles](https://www.opensubtitles.com/) for subtitles
 - [bitmagnet](https://bitmagnet.io/) *(self-hosted)* for torrents
+
+---
+
+###### Mirrors: [SuperNETs](https://git.supernets.org/acidvegas/) • [GitHub](https://github.com/acidvegas/) • [GitLab](https://gitlab.com/acidvegas/) • [Codeberg](https://codeberg.org/acidvegas/)
