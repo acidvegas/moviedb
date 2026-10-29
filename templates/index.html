@@ -1,16 +1,6 @@
 {% extends 'base.html' %}
 {% from '_macros.html' import grid with context %}
 {% block content %}
-<section class="mb-10 rounded-2xl bg-gradient-to-br from-zinc-900 to-zinc-950 border border-zinc-800 p-6 sm:p-10">
-	<h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight">Every title. Every credit. <span class="text-accent">Local.</span></h1>
-	<p class="mt-2 text-zinc-400">{{ '{:,}'.format(stats.titles) }} titles and {{ '{:,}'.format(stats.names) }} people from the IMDb datasets. Built {{ stats.built }}.</p>
-	<div class="mt-5 flex flex-wrap gap-2 text-sm">
-		<a href="/titles?type=movie&sort=rating&votes=25000" class="px-4 py-2 rounded-lg bg-accent text-black font-semibold hover:bg-accent-dim">Top rated movies</a>
-		<a href="/titles?type=tvSeries&sort=rating&votes=25000" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Top rated TV</a>
-		<a href="/names" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Browse people</a>
-		<a href="/lists" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">My lists</a>
-	</div>
-</section>
 {% for heading, items, link in [('Recent movies', recent, '/titles?type=movie&sort=votes&year_from=' ~ (recent[0].start_year if recent else '')), ('Most popular movies', popular, '/titles?type=movie'), ('Most popular series', series, '/titles?type=tvSeries')] %}
 <section class="mb-10">
 	<div class="flex items-baseline justify-between mb-4"><h2 class="text-xl font-bold">{{ heading }}</h2><a href="{{ link }}" class="text-sm text-zinc-400 hover:text-accent">See all →</a></div>
