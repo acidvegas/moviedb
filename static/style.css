@@ -8,3 +8,5 @@
 .toast { left: 50%; transform: translateX(-50%); }
 [data-nav].nav-active { outline: 2px solid #f5c518; outline-offset: 3px; border-radius: .6rem; }
 [hidden] { display: none !important; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
