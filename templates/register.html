@@ -1,0 +1,43 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- register.html -->
+
+{% extends 'base.html' %}
+{% block title %}Register · MovieDB{% endblock %}
+{% block content %}
+{% set inp = 'w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+<div class="max-w-sm mx-auto pt-6 sm:pt-12">
+	<h1 class="text-2xl font-bold">Register</h1>
+	<p class="mt-1 text-sm text-zinc-400">An account gets you ratings, a watchlist, lists, recommendations and Letterboxd sync. Browsing works without one. Already registered? <a href="/login" class="text-accent hover:underline">Log in</a></p>
+	{% if closed %}
+	<div class="mt-6 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 text-sm text-zinc-400">Registration is closed right now.</div>
+	{% elif done %}
+	<div class="mt-6 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-5 text-sm text-emerald-400">
+		{% if done == 'approved' %}Account created. <a href="/login" class="underline">Log in</a>{% else %}Account created. It needs to be approved by the admin before you can log in.{% endif %}
+	</div>
+	{% else %}
+	<form action="/register" method="post" hx-boost="false" class="mt-6 space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+		{% if error %}<div class="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-400">{{ error }}</div>{% endif %}
+		<div>
+			<label for="name" class="text-sm font-medium text-zinc-300">Username</label>
+			<input id="name" name="name" value="{{ name }}" required minlength="3" maxlength="15" pattern="[A-Za-z]{3,15}" title="3 to 15 letters (A-Z only)" autocomplete="username" class="mt-1 {{ inp }}">
+			<p class="mt-1 text-xs text-zinc-500">3 to 15 letters, A-Z only.</p>
+		</div>
+		<div>
+			<label for="password" class="text-sm font-medium text-zinc-300">Password</label>
+			<input id="password" name="password" type="password" required minlength="6" maxlength="100" autocomplete="new-password" class="mt-1 {{ inp }}">
+			<p class="mt-1 text-xs text-zinc-500">6 to 100 characters. There is no email, so no password reset: keep it safe.</p>
+		</div>
+		<div>
+			<label for="captcha" class="text-sm font-medium text-zinc-300">Type the characters</label>
+			<div class="mt-1 flex items-center gap-2">
+				<img src="/captcha/{{ captcha }}.svg" alt="Captcha" width="300" height="90" class="rounded-lg border border-zinc-800 max-w-full">
+				<a href="/register" hx-boost="false" class="shrink-0 p-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300" title="New captcha" aria-label="New captcha"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v6h6M20 20v-6h-6"/><path d="M20 10a8 8 0 00-14.3-4.3L4 10m16 4l-1.7 4.3A8 8 0 014 14"/></svg></a>
+			</div>
+			<input type="hidden" name="captcha_id" value="{{ captcha }}">
+			<input id="captcha" name="captcha" required maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" class="mt-2 {{ inp }} font-mono uppercase tracking-widest">
+		</div>
+		<button class="w-full px-4 py-2 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold">Create account</button>
+	</form>
+	{% endif %}
+</div>
+{% endblock %}

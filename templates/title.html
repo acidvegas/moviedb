@@ -31,10 +31,10 @@
 			{% if directors %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Director{{ 's' if directors | length > 1 }}</dt><dd>{% for p in directors[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if directors | length > 12 %} +{{ directors | length - 12 }} more{% endif %}</dd></div>{% endif %}
 			{% if writers %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Writer{{ 's' if writers | length > 1 }}</dt><dd>{% for p in writers[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if writers | length > 12 %} +{{ writers | length - 12 }} more{% endif %}</dd></div>{% endif %}
 		</dl>
-		<div class="mt-4">{% with tconst = t.tconst %}{% include '_marks.html' %}{% endwith %}</div>
+		{% if user %}<div class="mt-4">{% with tconst = t.tconst %}{% include '_marks.html' %}{% endwith %}</div>{% endif %}
 		<div hx-get="/title/{{ tid }}/tmdb" hx-trigger="load" hx-swap="outerHTML"></div>
 		<div class="mt-5 flex flex-wrap gap-2 items-start">
-			<div id="lists-{{ t.tconst }}">{{ lists_html | safe }}</div>
+			{% if user %}<div id="lists-{{ t.tconst }}">{{ lists_html | safe }}</div>{% endif %}
 			<a href="https://www.imdb.com/title/{{ tid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">IMDb ↗</a>
 			<a href="https://letterboxd.com/imdb/{{ tid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">Letterboxd ↗</a>
 		</div>
@@ -59,7 +59,7 @@
 {% endif %}
 </section>
 
-{% if t.type not in ('tvSeries', 'tvMiniSeries') %}<div hx-get="/title/{{ tid }}/subs" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
+{% if user and t.type not in ('tvSeries', 'tvMiniSeries') %}<div hx-get="/title/{{ tid }}/subs" hx-trigger="load" hx-swap="outerHTML"></div>{% endif %}
 
 {% if seasons %}
 <section class="mt-10" x-data="{season: '{{ (seasons | list)[0] }}'}">

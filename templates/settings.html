@@ -54,6 +54,7 @@
 		</details>
 	</section>
 
+	{% if user.admin %}
 	<section class="{{ card }}">
 		<div class="{{ head }}">
 			<div><h2 class="font-semibold">TMDB</h2><p class="text-xs text-zinc-500">Posters, headshots, plots, trailers and extra details</p></div>
@@ -86,6 +87,7 @@
 			</div>
 		</div>
 	</section>
+	{% endif %}
 
 	<section class="{{ card }}" x-data="{q: '', only: false}">
 		<div class="{{ head }}">
@@ -115,8 +117,8 @@
 
 	<section class="{{ card }}">
 		<div class="{{ head }}">
-			<div><h2 class="font-semibold">Subtitles</h2><p class="text-xs text-zinc-500">English subtitles from SubDL, with OpenSubtitles as a fallback</p></div>
-			<button hx-post="/subs" hx-target="#subs-status" hx-swap="outerHTML" {{ 'disabled' if not (subs.subdl_key or subs.os_key) }} class="{{ primary }}">Fetch now</button>
+			<div><h2 class="font-semibold">Subtitles</h2><p class="text-xs text-zinc-500">Optional. Your keys join the shared pool that everyone's subtitle searches and downloads rotate through</p></div>
+			{% if user.admin %}<button hx-post="/subs" hx-target="#subs-status" hx-swap="outerHTML" class="{{ primary }}">Fetch now</button>{% endif %}
 		</div>
 		<form action="/settings" method="post" x-data="{show: false}">
 			<div class="{{ row }}">
@@ -145,6 +147,7 @@
 				</div>
 			</div>
 		</form>
+		{% if user.admin %}
 		<div class="{{ row }}">
 			<div class="{{ label }}">Library prefetch</div>
 			<div>
@@ -152,8 +155,43 @@
 				<p class="mt-2 text-xs text-zinc-500">Downloads the best English subtitle for library titles that have none, using up each provider's daily download quota (SubDL 50, OpenSubtitles 20 on free accounts). Runs again after the quotas reset at midnight UTC. {{ '{:,}'.format(subs.files) }} subtitle files saved on this server.</p>
 			</div>
 		</div>
+		{% endif %}
 	</section>
 
+	{% if not user.admin %}
+	<section class="{{ card }}" x-data="{del: false}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Account</h2><p class="text-xs text-zinc-500">Logged in as {{ user.name }}</p></div>
+		</div>
+		{% if account %}<div class="px-5 pt-4"><div class="rounded-lg px-3 py-2 text-sm {{ 'border border-emerald-500/30 bg-emerald-500/10 text-emerald-400' if account == 'changed' else 'border border-red-500/30 bg-red-500/10 text-red-400' }}">{{ {'changed': 'Password changed.', 'wrong': 'Current password is wrong.', 'length': 'New password must be 6 to 100 characters.'}.get(account, '') }}</div></div>{% endif %}
+		<form action="/account" method="post" hx-boost="false">
+			<div class="{{ row }}">
+				<label class="{{ label }}" for="current">Current password</label>
+				<input id="current" name="current" type="password" required autocomplete="current-password" class="{{ inp }}">
+			</div>
+			<div class="{{ row }}" x-show="!del">
+				<label class="{{ label }}" for="new-password">New password</label>
+				<div class="flex gap-2">
+					<input id="new-password" name="password" type="password" minlength="6" maxlength="100" :required="!del" autocomplete="new-password" placeholder="6 to 100 characters" class="{{ inp }}">
+					<button name="action" value="password" class="{{ btn }}">Change</button>
+				</div>
+			</div>
+			<div class="{{ row }}">
+				<div class="{{ label }}">Delete account</div>
+				<div>
+					<button type="button" x-show="!del" @click="del = true" class="{{ btn }}">Delete my account…</button>
+					<div x-show="del" x-cloak class="flex flex-wrap items-center gap-2">
+						<span class="text-sm text-zinc-400">Deletes your account, ratings, lists and everything else. Enter your current password above.</span>
+						<button name="action" value="delete" class="shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium">Delete forever</button>
+						<button type="button" @click="del = false" class="{{ btn }}">Cancel</button>
+					</div>
+				</div>
+			</div>
+		</form>
+	</section>
+	{% endif %}
+
+	{% if user.admin %}
 	<section class="{{ card }}">
 		<div class="{{ head }}">
 			<div><h2 class="font-semibold">Torrents</h2><p class="text-xs text-zinc-500">Top torrents on each title page from a bitmagnet server (Torznab API)</p></div>
@@ -221,5 +259,6 @@
 		{% endif %}
 		<p class="px-5 py-3 text-xs text-zinc-500">Rebuilds automatically once a week. Downloads only changed datasets, builds a new database alongside the live one, then swaps it in atomically. The site stays usable during the ~30 minute build.</p>
 	</section>
+	{% endif %}
 </div>
 {% endblock %}

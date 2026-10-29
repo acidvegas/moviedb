@@ -11,9 +11,9 @@
 			<div><label class="text-xs text-zinc-500">Type</label>
 				<select name="type" class="{{ inp }}"><option value="">All (except episodes)</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if args.type == t }}>{{ type_label(t) }}</option>{% endfor %}</select></div>
 			<div><label class="text-xs text-zinc-500">Sort</label>
-				<select name="sort" class="{{ inp }}">{% for s in sorts %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ 'My rating' if s == 'mine' else s | capitalize }}</option>{% endfor %}</select></div>
-			<div><label class="text-xs text-zinc-500">My library</label>
-				<select name="mine" class="{{ inp }}"><option value="">Everything</option>{% for m, label in [('unwatched', 'Hide watched'), ('watched', 'Watched only'), ('watchlist', 'Watchlist only'), ('rated', 'Rated by me')] %}<option value="{{ m }}" {{ 'selected' if args.mine == m }}>{{ label }}</option>{% endfor %}</select></div>
+				<select name="sort" class="{{ inp }}">{% for s in sorts if user or s != 'mine' %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ 'My rating' if s == 'mine' else s | capitalize }}</option>{% endfor %}</select></div>
+			{% if user %}<div><label class="text-xs text-zinc-500">My library</label>
+				<select name="mine" class="{{ inp }}"><option value="">Everything</option>{% for m, label in [('unwatched', 'Hide watched'), ('watched', 'Watched only'), ('watchlist', 'Watchlist only'), ('rated', 'Rated by me')] %}<option value="{{ m }}" {{ 'selected' if args.mine == m }}>{{ label }}</option>{% endfor %}</select></div>{% endif %}
 			{% if mine.providers %}<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="services" value="1" {{ 'checked' if args.services == '1' }} class="accent-yellow-400"> On my streaming services</label>
 			<p class="text-[11px] text-zinc-500 -mt-2">Only titles with cached TMDB data are known. Run a pre-cache in Settings to cover more.</p>{% endif %}
 			<div class="grid grid-cols-2 gap-2">

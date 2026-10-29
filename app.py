@@ -3,11 +3,18 @@
 
 import asyncio
 import csv
+import functools
+import hashlib
+import hmac
 import io
 import json
+import math
 import os
+import random
 import re
+import secrets
 import shutil
+import sqlite3
 import sys
 import time
 import zipfile
@@ -25,7 +32,7 @@ try:
 	import aiosqlite
 	from hypercorn.asyncio import serve
 	from hypercorn.config  import Config
-	from quart             import Quart, abort, redirect, render_template, request, Response, send_file
+	from quart             import Quart, abort, g, redirect, render_template, request, Response, send_file
 except ImportError:
 	raise ImportError('missing dependencies (pip install -r requirements.txt)')
 
@@ -39,8 +46,8 @@ PAGE_SIZE    = 48
 USER_AGENT   = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
 TITLE_TYPES  = ['movie', 'tvSeries', 'tvMiniSeries', 'tvMovie', 'tvSpecial', 'short', 'tvShort', 'video', 'tvEpisode', 'tvPilot']
 GENRES       = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'Film-Noir', 'Game-Show', 'History', 'Horror', 'Music', 'Musical', 'Mystery', 'News', 'Reality-TV', 'Romance', 'Sci-Fi', 'Short', 'Sport', 'Talk-Show', 'Thriller', 'War', 'Western']
-TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'newest': 'start_year DESC, votes DESC', 'oldest': 'start_year ASC, votes DESC', 'title': 'primary_title COLLATE NOCASE', 'mine': "(SELECT rating FROM u.ratings WHERE kind = 'tt' AND id = tconst) DESC, votes DESC"}
-MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE kind = 'tt')"}
+TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'newest': 'start_year DESC, votes DESC', 'oldest': 'start_year ASC, votes DESC', 'title': 'primary_title COLLATE NOCASE', 'mine': "(SELECT rating FROM u.ratings WHERE user_id = {uid} AND kind = 'tt' AND id = tconst) DESC, votes DESC"}
+MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE user_id = {uid} AND kind = 'tt')"}
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
 NAME_SORTS   = {'score': 'score DESC', 'credits': 'credits DESC', 'name': 'name COLLATE NOCASE', 'born': 'birth_year DESC'}
@@ -51,6 +58,8 @@ PRECACHE     = {'titles': 50_000, 'people': 20_000, 'workers': 12}
 SUBS_DIR     = importer.DATA_DIR / 'subs'
 OS_AGENT     = 'MovieDB v1.0'
 WEEK         = 7 * 86400
+SESSION_AGE  = 365 * 86400
+CAPTCHA      = {'A': '0,12 4,0 8,12;1.5,7.5 6.5,7.5', 'C': '8,1.5 6,0 2,0 0,3 0,9 2,12 6,12 8,10.5', 'D': '0,0 0,12 5,12 8,9 8,3 5,0 0,0', 'E': '8,0 0,0 0,12 8,12;0,6 6,6', 'F': '8,0 0,0 0,12;0,6 6,6', 'G': '8,1.5 6,0 2,0 0,3 0,9 2,12 6,12 8,10 8,7 5,7', 'H': '0,0 0,12;8,0 8,12;0,6 8,6', 'J': '8,0 8,9 6,12 2,12 0,9', 'K': '0,0 0,12;8,0 0,7;3,5 8,12', 'M': '0,12 0,0 4,7 8,0 8,12', 'N': '0,12 0,0 8,12 8,0', 'P': '0,12 0,0 6,0 8,2 8,4 6,6 0,6', 'R': '0,12 0,0 6,0 8,2 8,4 6,6 0,6;4,6 8,12', 'T': '0,0 8,0;4,0 4,12', 'U': '0,0 0,9 2,12 6,12 8,9 8,0', 'V': '0,0 4,12 8,0', 'W': '0,0 2,12 4,5 6,12 8,0', 'X': '0,0 8,12;8,0 0,12', 'Y': '0,0 4,6 8,0;4,6 4,12', '3': '0,1 2,0 6,0 8,2 8,4 6,6 3,6;6,6 8,8 8,10 6,12 2,12 0,11', '4': '6,12 6,0 0,8 8,8', '6': '7,0 3,0 0,4 0,10 2,12 6,12 8,10 8,8 6,6 2,6 0,8', '7': '0,0 8,0 3,12', '9': '8,4 6,6 2,6 0,4 0,2 2,0 6,0 8,2 8,8 5,12 1,12'}
 STREAM_SITES = [
 	('1Shows',       'https://www.1shows.org',         '/movies/{tmdb}',               '/tv/{tmdb}',               None),
 	('321Movies',    'https://321movies.co.uk',        '/movie/{tmdb}',                '/tv/{tmdb}',               None),
@@ -86,25 +95,105 @@ NO_COVER     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><d
 NO_PHOTO     = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300"><defs><linearGradient id="g" x2="0" y2="1"><stop offset="0" stop-color="#27272a"/><stop offset="1" stop-color="#18181b"/></linearGradient></defs><rect width="200" height="300" fill="url(#g)"/><g fill="#3f3f46"><circle cx="100" cy="122" r="34"/><path d="M38 220c0-38 28-58 62-58s62 20 62 58z"/></g></svg>'
 USER_SCHEMA  = '''
 PRAGMA journal_mode = WAL;
-CREATE TABLE IF NOT EXISTS lists           (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', created REAL, updated REAL);
+CREATE TABLE IF NOT EXISTS users           (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE COLLATE NOCASE, password TEXT, admin INTEGER DEFAULT 0, approved INTEGER DEFAULT 0, created REAL);
+CREATE TABLE IF NOT EXISTS sessions        (token TEXT PRIMARY KEY, user_id INTEGER, expires REAL);
+CREATE TABLE IF NOT EXISTS user_settings   (user_id INTEGER, key TEXT, value TEXT, PRIMARY KEY (user_id, key));
+CREATE TABLE IF NOT EXISTS subtitle_keys   (user_id INTEGER PRIMARY KEY, subdl_key TEXT DEFAULT '', os_key TEXT DEFAULT '', os_user TEXT DEFAULT '', os_pass TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS lists           (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT DEFAULT '', created REAL, updated REAL, user_id INTEGER);
 CREATE TABLE IF NOT EXISTS list_items      (list_id INTEGER REFERENCES lists(id) ON DELETE CASCADE, tconst INTEGER, added REAL, PRIMARY KEY (list_id, tconst));
 CREATE TABLE IF NOT EXISTS settings        (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS posters         (id TEXT PRIMARY KEY, url TEXT, source TEXT, fetched REAL);
 CREATE TABLE IF NOT EXISTS tmdb            (id TEXT PRIMARY KEY, data TEXT, fetched REAL);
 CREATE TABLE IF NOT EXISTS tmdb_ids        (kind TEXT, tmdb_id INTEGER, imdb_id TEXT, PRIMARY KEY (kind, tmdb_id));
 CREATE TABLE IF NOT EXISTS title_providers (tconst INTEGER, provider_id INTEGER, PRIMARY KEY (tconst, provider_id));
-CREATE TABLE IF NOT EXISTS ratings         (kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (kind, id));
-CREATE TABLE IF NOT EXISTS marks           (tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (tconst, mark));
-CREATE TABLE IF NOT EXISTS follows         (nconst INTEGER PRIMARY KEY, added REAL);
+CREATE TABLE IF NOT EXISTS ratings         (user_id INTEGER, kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (user_id, kind, id));
+CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (user_id, tconst, mark));
+CREATE TABLE IF NOT EXISTS follows         (user_id INTEGER, nconst INTEGER, added REAL, PRIMARY KEY (user_id, nconst));
 CREATE TABLE IF NOT EXISTS lb_map          (slug TEXT PRIMARY KEY, tconst INTEGER);
-CREATE TABLE IF NOT EXISTS lb_unmatched    (key TEXT PRIMARY KEY, name TEXT, sections TEXT, rating INTEGER);
+CREATE TABLE IF NOT EXISTS lb_unmatched    (user_id INTEGER, key TEXT, name TEXT, sections TEXT, rating INTEGER, PRIMARY KEY (user_id, key));
 CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEXT, fetched REAL);
 '''
 
 app        = Quart(__name__, static_folder='static', template_folder='templates')
-state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None}
+state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None, 'os_tokens': {}, 'captchas': {}}
 poster_sem = asyncio.Semaphore(4)
 tasks      = set()
+
+
+def captcha_new() -> str:
+	'''Create a register captcha (6 random characters, valid for 10 minutes) and return its id.'''
+
+	now = time.time()
+
+	for key in [key for key, (_, expires) in state['captchas'].items() if expires < now or len(state['captchas']) > 5000]:
+		del state['captchas'][key]
+
+	token = secrets.token_urlsafe(16)
+	state['captchas'][token] = (''.join(secrets.choice(list(CAPTCHA)) for _ in range(6)), now + 600)
+
+	return token
+
+
+def captcha_svg(text: str) -> str:
+	'''
+	Draw captcha text as distorted line strokes: every glyph is jittered, scaled, rotated, sheared and waved, over noise curves. The text itself never appears in the SVG.
+
+	:param text: Characters to draw (keys of CAPTCHA)
+	'''
+
+	width, height = 300, 90
+	colors        = ('#f5c518', '#e4e4e7', '#a1a1aa', '#fbbf24', '#d4d4d8')
+	wave          = (random.uniform(3, 6), random.uniform(18, 30), random.uniform(0, math.tau))
+	parts         = [f'<rect width="{width}" height="{height}" rx="10" fill="#18181b"/>']
+
+	def curve(color: str, stroke: float) -> str:
+		points = [(random.uniform(-10, width / 3), random.uniform(0, height)), (random.uniform(0, width), random.uniform(0, height)), (random.uniform(0, width), random.uniform(0, height)), (random.uniform(width * 2 / 3, width + 10), random.uniform(0, height))]
+		return f'<path d="M{points[0][0]:.1f} {points[0][1]:.1f}C' + ' '.join(f'{x:.1f} {y:.1f}' for x, y in points[1:]) + f'" fill="none" stroke="{color}" stroke-width="{stroke:.1f}" opacity="{random.uniform(0.4, 0.9):.2f}"/>'
+
+	parts += [curve(random.choice(('#3f3f46', '#52525b', '#71717a')), random.uniform(1, 2.5)) for _ in range(7)]
+	parts += [f'<circle cx="{random.uniform(0, width):.1f}" cy="{random.uniform(0, height):.1f}" r="{random.uniform(0.6, 1.8):.1f}" fill="#71717a"/>' for _ in range(45)]
+	x = random.uniform(14, 30)
+
+	for char in text:
+		scale  = random.uniform(3.4, 4.0)
+		angle  = random.uniform(-0.3, 0.3)
+		shear  = random.uniform(-0.25, 0.25)
+		cx, cy = x + 4 * scale, height / 2 + random.uniform(-6, 6)
+		color  = random.choice(colors)
+		paths  = []
+		for stroke in CAPTCHA[char].split(';'):
+			points = []
+			for point in stroke.split():
+				gx, gy = (float(v) + random.uniform(-0.45, 0.45) for v in point.split(','))
+				dx, dy = (gx - 4) * scale, (gy - 6) * scale
+				dx    += shear * dy
+				px, py = cx + dx * math.cos(angle) - dy * math.sin(angle), cy + dx * math.sin(angle) + dy * math.cos(angle)
+				points.append(f'{px:.1f} {py + wave[0] * math.sin(px / wave[1] + wave[2]):.1f}')
+			paths.append('M' + 'L'.join(points))
+		parts.append(f'<path d="{"".join(paths)}" fill="none" stroke="{color}" stroke-width="{random.uniform(2.6, 3.6):.1f}" stroke-linecap="round" stroke-linejoin="round"/>')
+		x += 8 * scale * random.uniform(0.95, 1.1)
+
+	parts += [curve(random.choice(colors), random.uniform(1.2, 2)) for _ in range(2)]
+
+	return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" width="{width}" height="{height}">{"".join(parts)}</svg>'
+
+
+async def delete_user(user_id: int):
+	'''
+	Delete an account and everything it owns.
+
+	:param user_id: Account id
+	'''
+
+	async with user_db() as db:
+		await db.execute('DELETE FROM list_items WHERE list_id IN (SELECT id FROM lists WHERE user_id = ?)', (user_id,))
+		for table in ('lists', 'ratings', 'marks', 'follows', 'lb_unmatched', 'user_settings', 'subtitle_keys', 'sessions'):
+			await db.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
+		await db.execute('DELETE FROM users WHERE id = ?', (user_id,))
+		await db.commit()
+
+	state['lb'].pop(user_id, None)
+	state['os_tokens'].pop(f'os:{user_id}', None)
 
 
 async def download(url: str, path: Path) -> bool:
@@ -251,15 +340,16 @@ async def lb_status() -> str:
 	'''Render the Letterboxd sync status partial.'''
 
 	async with user_db() as db:
-		unmatched = (await db.execute_fetchall('SELECT count(*) AS n FROM lb_unmatched'))[0]['n']
+		unmatched = (await db.execute_fetchall('SELECT count(*) AS n FROM lb_unmatched WHERE user_id = ?', (g.user['id'],)))[0]['n']
 
-	return await render_template('_lb_status.html', lb=state['lb'], result=json.loads(await setting('lb_result', '{}')), unmatched=unmatched)
+	return await render_template('_lb_status.html', lb=state['lb'].get(g.user['id'], {}), result=json.loads(await user_setting('lb_result', '{}')), unmatched=unmatched)
 
 
-async def letterboxd_apply(source: str, watched: list, watchlist: list, rated: list, mirror_watched: bool):
+async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: list, rated: list, mirror_watched: bool):
 	'''
-	Match Letterboxd items to IMDb and write them to local marks and ratings.
+	Match Letterboxd items to IMDb and write them to an account's marks and ratings.
 
+	:param user_id: Account id
 	:param source: 'export' or 'sync', recorded in the result
 	:param watched: List of (key, name, rating) watched films
 	:param watchlist: List of (key, name, rating) watchlist films
@@ -267,9 +357,9 @@ async def letterboxd_apply(source: str, watched: list, watchlist: list, rated: l
 	:param mirror_watched: Replace all watched marks instead of adding to them
 	'''
 
-	mapping   = await letterboxd_match(watched + watchlist + rated)
+	mapping   = await letterboxd_match(user_id, watched + watchlist + rated)
 	now       = time.time()
-	ratings   = [('tt', mapping[key], rating, now) for key, _, rating in rated if rating and mapping.get(key)]
+	ratings   = [(user_id, 'tt', mapping[key], rating, now) for key, _, rating in rated if rating and mapping.get(key)]
 	unmatched = {}
 
 	for section, items in (('watched', watched), ('watchlist', watchlist), ('rated', rated)):
@@ -280,26 +370,27 @@ async def letterboxd_apply(source: str, watched: list, watchlist: list, rated: l
 				entry[2] = rating or entry[2]
 
 	async with user_db() as db:
-		await db.execute("DELETE FROM marks WHERE mark = 'watchlist'" + (" OR mark = 'watched'" if mirror_watched else ''))
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?)', [(mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key)])
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?)', [(mapping[key], 'watchlist', now) for key, _, _ in watchlist if mapping.get(key)])
-		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?)', ratings)
+		await db.execute("DELETE FROM marks WHERE user_id = ? AND (mark = 'watchlist'" + (" OR mark = 'watched')" if mirror_watched else ')'), (user_id,))
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key)])
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watchlist', now) for key, _, _ in watchlist if mapping.get(key)])
+		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', ratings)
 		if source == 'export':
-			await db.execute('DELETE FROM lb_unmatched')
-		await db.executemany('INSERT OR REPLACE INTO lb_unmatched VALUES (?, ?, ?, ?)', [(key, name, ','.join(sorted(sections)), rating) for key, (name, sections, rating) in unmatched.items()])
-		result = {'time': now, 'source': source, 'user': await setting('letterboxd_user'), 'watched': len(watched), 'watchlist': len(watchlist), 'ratings': len(ratings), 'new_ratings': cursor.rowcount}
-		await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('lb_last_sync', str(now)), ('lb_result', json.dumps(result))] + ([('lb_last_export', str(now))] if source == 'export' else []))
+			await db.execute('DELETE FROM lb_unmatched WHERE user_id = ?', (user_id,))
+		await db.executemany('INSERT OR REPLACE INTO lb_unmatched VALUES (?, ?, ?, ?, ?)', [(user_id, key, name, ','.join(sorted(sections)), rating) for key, (name, sections, rating) in unmatched.items()])
+		result = {'time': now, 'source': source, 'user': await user_setting('letterboxd_user', user_id=user_id), 'watched': len(watched), 'watchlist': len(watchlist), 'ratings': len(ratings), 'new_ratings': cursor.rowcount}
+		await db.executemany('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', [(user_id, 'lb_last_sync', str(now)), (user_id, 'lb_result', json.dumps(result))] + ([(user_id, 'lb_last_export', str(now))] if source == 'export' else []))
 		await db.commit()
 
 
-async def letterboxd_import(data: bytes):
+async def letterboxd_import(user_id: int, data: bytes):
 	'''
 	Import a Letterboxd data export zip: full mirror of watched and watchlist, ratings added without overwriting local ones.
 
+	:param user_id: Account id
 	:param data: Raw zip file bytes
 	'''
 
-	state['lb'] = {'running': True, 'step': 'Reading export', 'progress': '', 'error': None}
+	state['lb'][user_id] = {'running': True, 'step': 'Reading export', 'progress': '', 'error': None}
 
 	try:
 		with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -311,16 +402,17 @@ async def letterboxd_import(data: bytes):
 
 			watched, watchlist, rated = read('watched.csv'), read('watchlist.csv'), read('ratings.csv')
 
-		await letterboxd_apply('export', watched, watchlist, rated, True)
-		state['lb'] = {'running': False}
+		await letterboxd_apply(user_id, 'export', watched, watchlist, rated, True)
+		state['lb'][user_id] = {'running': False}
 	except Exception as e:
-		state['lb'] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
+		state['lb'][user_id] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
 
 
-async def letterboxd_match(items: list) -> dict:
+async def letterboxd_match(user_id: int, items: list) -> dict:
 	'''
 	Map Letterboxd film slugs to IMDb tconsts, using the cache, then an exact local title+year match, then the film page's IMDb link.
 
+	:param user_id: Account id, for progress reporting
 	:param items: List of (slug, name, rating) tuples
 	'''
 
@@ -348,9 +440,9 @@ async def letterboxd_match(items: list) -> dict:
 			except (aiohttp.ClientError, asyncio.TimeoutError):
 				return
 		found[slug] = int(match.group(1)) if match else None
-		state['lb']['progress'] = f'{len(found):,} / {len(todo):,} matched'
+		state['lb'][user_id]['progress'] = f'{len(found):,} / {len(todo):,} matched'
 
-	state['lb']['step'] = f'Matching {len(todo):,} new films ({len(fetch):,} need a page lookup)'
+	state['lb'][user_id]['step'] = f'Matching {len(todo):,} new films ({len(fetch):,} need a page lookup)'
 	await asyncio.gather(*(lookup(slug) for slug in fetch))
 
 	async with user_db() as db:
@@ -360,10 +452,11 @@ async def letterboxd_match(items: list) -> dict:
 	return mapping | found
 
 
-async def letterboxd_scrape(user: str, section: str, max_pages: int = 10_000) -> list:
+async def letterboxd_scrape(user_id: int, user: str, section: str, max_pages: int = 10_000) -> list:
 	'''
 	Scrape the pages of a Letterboxd user's films or watchlist.
 
+	:param user_id: Account id, for progress reporting
 	:param user: Letterboxd username
 	:param section: 'films' (watched) or 'watchlist'
 	:param max_pages: Stop after this many pages
@@ -374,7 +467,7 @@ async def letterboxd_scrape(user: str, section: str, max_pages: int = 10_000) ->
 	last  = 1
 
 	while page <= last:
-		state['lb']['step'] = f'Scraping {section} page {page} / {last}'
+		state['lb'][user_id]['step'] = f'Scraping {section} page {page} / {last}'
 
 		async with state['session'].get(f'https://letterboxd.com/{user}/{section}/' + (f'page/{page}/' if page > 1 else ''), headers={'User-Agent': USER_AGENT}) as response:
 			if response.status != 200:
@@ -396,29 +489,33 @@ async def letterboxd_scrape(user: str, section: str, max_pages: int = 10_000) ->
 	return items
 
 
-async def letterboxd_sync():
-	'''Daily sync: mirror the Letterboxd watchlist, and add the latest watched films and ratings (only page 1 is reachable without login).'''
+async def letterboxd_sync(user_id: int):
+	'''
+	Daily sync: mirror the Letterboxd watchlist, and add the latest watched films and ratings (only page 1 is reachable without login).
 
-	user        = await setting('letterboxd_user')
-	state['lb'] = {'running': True, 'step': 'Starting', 'progress': '', 'error': None}
+	:param user_id: Account id
+	'''
+
+	user                 = await user_setting('letterboxd_user', user_id=user_id)
+	state['lb'][user_id] = {'running': True, 'step': 'Starting', 'progress': '', 'error': None}
 
 	try:
-		watched   = await letterboxd_scrape(user, 'films', 1)
-		watchlist = await letterboxd_scrape(user, 'watchlist')
+		watched   = await letterboxd_scrape(user_id, user, 'films', 1)
+		watchlist = await letterboxd_scrape(user_id, user, 'watchlist')
 		if not watched and not watchlist:
 			raise RuntimeError(f'no films found for {user} (private profile or wrong username?)')
 
-		await letterboxd_apply('sync', watched, watchlist, watched, False)
-		state['lb'] = {'running': False}
+		await letterboxd_apply(user_id, 'sync', watched, watchlist, watched, False)
+		state['lb'][user_id] = {'running': False}
 	except Exception as e:
-		state['lb'] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
+		state['lb'][user_id] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
 
 
 async def list_summaries() -> list:
-	'''Return all lists with their item counts.'''
+	'''Return the logged-in account's lists with their item counts.'''
 
 	async with user_db() as db:
-		return await db.execute_fetchall('SELECT l.*, count(i.tconst) AS count FROM lists l LEFT JOIN list_items i ON i.list_id = l.id GROUP BY l.id ORDER BY l.updated DESC')
+		return await db.execute_fetchall('SELECT l.*, count(i.tconst) AS count FROM lists l LEFT JOIN list_items i ON i.list_id = l.id WHERE l.user_id = ? GROUP BY l.id ORDER BY l.updated DESC', (g.user['id'],))
 
 
 def load_env():
@@ -456,42 +553,100 @@ async def match_title(name: str, year: int | None, types: tuple, exact_year: boo
 	return None
 
 
-async def my_providers() -> list:
-	'''Return the user's selected streaming provider ids.'''
-
-	return json.loads(await setting('providers', '[]'))
-
-
-async def opensubtitles_request(method: str, path: str, auth: bool = False, **kwargs) -> dict:
+async def migrate_users(db: aiosqlite.Connection):
 	'''
-	Make an OpenSubtitles API request, logging in first when auth is needed and credentials are set. Raises RuntimeError on failure.
+	Give the data from before accounts existed to the admin account (id 1). Runs once; old tables are renamed to *_old before USER_SCHEMA creates the new ones.
 
+	:param db: Open user database connection
+	'''
+
+	old = [row['name'] for row in await db.execute_fetchall("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%_old'")]
+
+	for table, columns in (('ratings', 'kind, id, rating, updated'), ('marks', 'tconst, mark, added'), ('follows', 'nconst, added'), ('lb_unmatched', 'key, name, sections, rating')):
+		if f'{table}_old' in old:
+			await db.execute(f'INSERT OR IGNORE INTO {table} (user_id, {columns}) SELECT 1, {columns} FROM {table}_old')
+			await db.execute(f'DROP TABLE {table}_old')
+
+	if 'user_id' not in [row['name'] for row in await db.execute_fetchall('PRAGMA table_info(lists)')]:
+		await db.execute('ALTER TABLE lists ADD COLUMN user_id INTEGER')
+		await db.execute('UPDATE lists SET user_id = 1')
+
+	for key in ('letterboxd_user', 'providers', 'lb_last_sync', 'lb_result', 'lb_last_export'):
+		await db.execute('INSERT OR IGNORE INTO user_settings SELECT 1, key, value FROM settings WHERE key = ?', (key,))
+		await db.execute('DELETE FROM settings WHERE key = ?', (key,))
+
+	if (rows := await db.execute_fetchall("SELECT key, value FROM settings WHERE key IN ('subdl_key', 'os_key', 'os_user', 'os_pass')")):
+		keys = {row['key']: row['value'] for row in rows}
+		await db.execute('INSERT OR REPLACE INTO subtitle_keys VALUES (1, ?, ?, ?, ?)', tuple(keys.get(k, '') for k in ('subdl_key', 'os_key', 'os_user', 'os_pass')))
+		await db.execute("DELETE FROM settings WHERE key IN ('subdl_key', 'os_key', 'os_user', 'os_pass')")
+
+
+async def my_providers() -> list:
+	'''Return the logged-in account's selected streaming provider ids (none for guests).'''
+
+	return json.loads(await user_setting('providers', '[]')) if g.user else []
+
+
+async def opensubtitles_request(account: dict, method: str, path: str, auth: bool = False, **kwargs) -> dict:
+	'''
+	Make an OpenSubtitles API request with one pooled key, logging in first when auth is needed and the key has a login. Raises RuntimeError on failure.
+
+	:param account: Pooled OpenSubtitles key from subtitle_accounts()
 	:param method: HTTP method
 	:param path: API path after /api/v1/
 	:param auth: Send the login token (raises the daily download limit from 5 to the account's limit)
 	'''
 
-	headers = {'Api-Key': await setting('os_key'), 'User-Agent': OS_AGENT, 'Accept': 'application/json'}
+	headers = {'Api-Key': account['key'], 'User-Agent': OS_AGENT, 'Accept': 'application/json'}
+	tokens  = state['os_tokens']
 
-	if auth and (user := await setting('os_user')):
-		if not state.get('os_token'):
-			login = await opensubtitles_request('POST', 'login', json={'username': user, 'password': await setting('os_pass')})
-			state['os_token'], state['os_host'] = login['token'], login.get('base_url') or 'api.opensubtitles.com'
-		headers['Authorization'] = f'Bearer {state["os_token"]}'
+	if auth and account['user']:
+		if account['id'] not in tokens:
+			login = await opensubtitles_request(account, 'POST', 'login', json={'username': account['user'], 'password': account['pass']})
+			tokens[account['id']] = (login['token'], login.get('base_url') or 'api.opensubtitles.com')
+		headers['Authorization'] = f'Bearer {tokens[account["id"]][0]}'
 
 	try:
-		async with state['session'].request(method, f'https://{state.get("os_host", "api.opensubtitles.com")}/api/v1/{path}', headers=headers, **kwargs) as response:
+		async with state['session'].request(method, f'https://{tokens[account["id"]][1] if account["id"] in tokens else "api.opensubtitles.com"}/api/v1/{path}', headers=headers, **kwargs) as response:
 			data = await response.json(content_type=None)
 	except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as e:
 		raise RuntimeError(f'{type(e).__name__}: {e}') from e
 
-	if response.status == 401 and auth and state.pop('os_token', None):
-		return await opensubtitles_request(method, path, auth, **kwargs)
+	if response.status == 401 and auth and tokens.pop(account['id'], None):
+		return await opensubtitles_request(account, method, path, auth, **kwargs)
 
 	if response.status != 200:
 		raise RuntimeError(str(data.get('message') or data.get('errors') or f'HTTP {response.status}') if isinstance(data, dict) else f'HTTP {response.status}')
 
 	return data
+
+
+def password_check(password: str, stored: str | None) -> bool:
+	'''
+	Check a password against a stored scrypt hash.
+
+	:param password: Password to check
+	:param stored: Hash from password_hash()
+	'''
+
+	try:
+		_, salt, digest = stored.split('$')
+	except (AttributeError, ValueError):
+		return False
+
+	return hmac.compare_digest(hashlib.scrypt(password.encode(), salt=bytes.fromhex(salt), n=2**14, r=8, p=1).hex(), digest)
+
+
+def password_hash(password: str) -> str:
+	'''
+	Hash a password with scrypt and a random salt.
+
+	:param password: Password to hash
+	'''
+
+	salt = secrets.token_bytes(16)
+
+	return f'scrypt${salt.hex()}${hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex()}'
 
 
 async def precache():
@@ -607,7 +762,7 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 			add(row['tconst'], weights[row['nconst']] * 0.35, origin[row['nconst']])
 
 	async with user_db() as db:
-		watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE mark = 'watched'")}
+		watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
 
 	candidates = [t for t in scores if t not in seeds and t not in watched]
 	titles     = await titles_by_ids(candidates)
@@ -624,13 +779,37 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 	return [{'t': row, 'because': because} for _, row, because in ranked[:limit]]
 
 
+def require(admin: bool = False):
+	'''
+	Route decorator: send guests to the login page, and refuse non-admins on admin routes.
+
+	:param admin: Only the admin account may use the route
+	'''
+
+	def decorator(func):
+		@functools.wraps(func)
+		async def wrapper(*args, **kwargs):
+			if not g.user:
+				return redirect('/login?' + urlencode({'next': request.full_path.rstrip('?')}))
+			if admin and not g.user['admin']:
+				abort(403)
+			return await func(*args, **kwargs)
+		return wrapper
+
+	return decorator
+
+
 async def scheduler():
-	'''Hourly background loop: daily Letterboxd sync, weekly IMDb rebuild, and weekly pre-cache.'''
+	'''Hourly background loop: daily Letterboxd sync for every account, weekly IMDb rebuild, and weekly pre-cache.'''
 
 	while True:
 		try:
-			if await setting('letterboxd_user') and time.time() - float(await setting('lb_last_sync', '0')) >= 86400 and not state['lb'].get('running'):
-				await letterboxd_sync()
+			async with user_db() as db:
+				synced = [row['user_id'] for row in await db.execute_fetchall("SELECT s.user_id FROM user_settings s JOIN users u ON u.id = s.user_id WHERE s.key = 'letterboxd_user' AND s.value != '' AND u.approved = 1")]
+
+			for user_id in synced:
+				if time.time() - float(await user_setting('lb_last_sync', '0', user_id)) >= 86400 and not state['lb'].get(user_id, {}).get('running'):
+					await letterboxd_sync(user_id)
 
 			built = importer.DB_PATH.stat().st_mtime if importer.DB_PATH.exists() else 0
 			if time.time() - built >= WEEK and read_status().get('state') != 'running':
@@ -639,7 +818,7 @@ async def scheduler():
 			if importer.DB_PATH.exists() and read_status().get('state') != 'running' and await setting('tmdb_key') and time.time() - float(await setting('precache_last', '0')) >= WEEK and not state['precache'].get('running'):
 				spawn(precache())
 
-			if importer.DB_PATH.exists() and (await setting('subdl_key') or await setting('os_key')) and time.time() // 86400 > float(await setting('subs_last', '0')) // 86400 and not state['subs'].get('running'):
+			if importer.DB_PATH.exists() and await subtitle_accounts() and time.time() // 86400 > float(await setting('subs_last', '0')) // 86400 and not state['subs'].get('running'):
 				spawn(subtitle_prefetch())
 		except Exception as e:
 			print(f'scheduler error: {type(e).__name__}: {e}', file=sys.stderr)
@@ -741,7 +920,24 @@ async def stream_links(tconst: int, d: dict | None) -> list:
 	return links
 
 
-async def subtitle_download(tconst: int, provider: str, sub_id: str, release: str) -> Path:
+async def subtitle_accounts() -> list:
+	'''Return the shared pool of subtitle keys: one entry per SubDL key and per OpenSubtitles key saved by any approved account.'''
+
+	async with user_db() as db:
+		rows = await db.execute_fetchall('SELECT k.* FROM subtitle_keys k JOIN users u ON u.id = k.user_id WHERE u.approved = 1')
+
+	pool = []
+
+	for row in rows:
+		if row['subdl_key']:
+			pool.append({'id': f'subdl:{row["user_id"]}', 'provider': 'subdl', 'key': row['subdl_key']})
+		if row['os_key']:
+			pool.append({'id': f'os:{row["user_id"]}', 'provider': 'os', 'key': row['os_key'], 'user': row['os_user'], 'pass': row['os_pass']})
+
+	return pool
+
+
+async def subtitle_download(tconst: int, provider: str, sub_id: str, release: str, accounts: list | None = None) -> Path:
 	'''
 	Download an English subtitle to data/subs/tt.../<release>.srt unless it is already there. Raises RuntimeError on failure.
 
@@ -749,6 +945,7 @@ async def subtitle_download(tconst: int, provider: str, sub_id: str, release: st
 	:param provider: 'subdl' or 'os'
 	:param sub_id: SubDL download path or OpenSubtitles file id
 	:param release: Release name, used as the file name
+	:param accounts: Pooled keys to try for OpenSubtitles (default: the whole pool, in random order)
 	'''
 
 	path = SUBS_DIR / fmt_id('tt', tconst) / subtitle_name(release)
@@ -777,7 +974,18 @@ async def subtitle_download(tconst: int, provider: str, sub_id: str, release: st
 				names = [n for n in names if re.search(rf'(?i)s0*{ep["season"]}\s*e0*{ep["episode"]}(?!\d)|\b{ep["season"]}x0*{ep["episode"]}(?!\d)', n)] or names
 			body = archive.read(names[0])
 	elif provider == 'os':
-		link = await opensubtitles_request('POST', 'download', auth=True, json={'file_id': int(sub_id)})
+		candidates = [a for a in (accounts if accounts is not None else await subtitle_accounts()) if a['provider'] == 'os']
+		random.shuffle(candidates)
+		if not candidates:
+			raise RuntimeError('no OpenSubtitles key')
+		for account in candidates:
+			try:
+				link = await opensubtitles_request(account, 'POST', 'download', auth=True, json={'file_id': int(sub_id)})
+				break
+			except RuntimeError as e:
+				error = e
+		else:
+			raise error
 		for attempt in range(3):
 			try:
 				async with state['session'].get(link['link']) as response:
@@ -829,24 +1037,28 @@ def subtitle_name(release: str) -> str:
 
 
 async def subtitle_quota() -> dict:
-	'''Return each subtitle provider's daily download quota (left, limit, reset as a unix time) as reported by its API.'''
+	'''Return the daily download quota (left, limit, reset as a unix time) of every pooled subtitle key as reported by its provider's API, plus per-provider totals.'''
 
-	quota = {'subdl': {'enabled': bool(await setting('subdl_key')), 'left': 0, 'limit': 0, 'reset': None}, 'os': {'enabled': bool(await setting('os_key') and await setting('os_user')), 'left': 0, 'limit': 0, 'reset': None}}
-
-	if quota['subdl']['enabled']:
+	async def check(account: dict) -> dict:
+		account |= {'left': 0, 'limit': 0, 'reset': None}
 		try:
-			async with state['session'].get('https://api.subdl.com/api/v2/me', headers={'Authorization': f'Bearer {await setting("subdl_key")}'}) as response:
-				data = (await response.json(content_type=None))['usage']['downloads']
-			quota['subdl'] |= {'left': int(data['remaining']), 'limit': int(data['limit']), 'reset': datetime.fromisoformat(data['reset_at']).timestamp()}
-		except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, KeyError, TypeError):
+			if account['provider'] == 'subdl':
+				async with state['session'].get('https://api.subdl.com/api/v2/me', headers={'Authorization': f'Bearer {account["key"]}'}) as response:
+					data = (await response.json(content_type=None))['usage']['downloads']
+				account |= {'left': int(data['remaining']), 'limit': int(data['limit']), 'reset': datetime.fromisoformat(data['reset_at']).timestamp()}
+			elif account['user']:
+				data = (await opensubtitles_request(account, 'GET', 'infos/user', auth=True))['data']
+				account |= {'left': int(data['remaining_downloads']), 'limit': int(data['allowed_downloads']), 'reset': datetime.fromisoformat(data['reset_time_utc']).timestamp() if data.get('reset_time_utc') else None}
+		except (aiohttp.ClientError, asyncio.TimeoutError, RuntimeError, ValueError, KeyError, TypeError):
 			pass
+		return account
 
-	if quota['os']['enabled']:
-		try:
-			data = (await opensubtitles_request('GET', 'infos/user', auth=True))['data']
-			quota['os'] |= {'left': int(data['remaining_downloads']), 'limit': int(data['allowed_downloads']), 'reset': datetime.fromisoformat(data['reset_time_utc']).timestamp() if data.get('reset_time_utc') else None}
-		except (RuntimeError, KeyError, TypeError, ValueError):
-			pass
+	accounts = await asyncio.gather(*(check(a) for a in await subtitle_accounts()))
+	quota    = {'accounts': accounts}
+
+	for provider in ('subdl', 'os'):
+		mine = [a for a in accounts if a['provider'] == provider and (provider == 'subdl' or a['user'])]
+		quota[provider] = {'enabled': bool(mine), 'count': len(mine), 'left': sum(a['left'] for a in mine), 'limit': sum(a['limit'] for a in mine), 'reset': min((a['reset'] for a in mine if a['reset']), default=None)}
 
 	return quota
 
@@ -863,10 +1075,11 @@ async def subtitle_prefetch():
 
 		titles                 = await titles_by_ids(library)
 		state['subs']['quota'] = quota = await subtitle_quota()
-		had_quota              = any(q['left'] for q in quota.values())
+		had_quota              = any(a['left'] for a in quota['accounts'])
 
 		for tconst in library:
-			if not (allowed := tuple(p for p, q in quota.items() if q['left'] > 0)):
+			pool = [a for a in quota['accounts'] if a['left'] > 0]
+			if not (allowed := tuple(dict.fromkeys(a['provider'] for a in pool))):
 				break
 			if tconst not in titles or titles[tconst]['type'] in ('tvSeries', 'tvMiniSeries') or subtitle_files(tconst):
 				continue
@@ -876,14 +1089,16 @@ async def subtitle_prefetch():
 				continue
 			usable = [r for r in results or [] if r['provider'] in allowed] if fresh else []
 			if not usable:
-				usable = [r for r in await subtitle_search(tconst, allowed) if r['provider'] in allowed]
+				usable = [r for r in await subtitle_search(tconst, allowed, pool) if r['provider'] in allowed]
 			if usable:
-				best = sorted(usable, key=lambda s: s['hi'] or bool(re.search(r'(?i)\b(sdh|hi)\b', s['release'])))[0]
+				best    = sorted(usable, key=lambda s: s['hi'] or bool(re.search(r'(?i)\b(sdh|hi)\b', s['release'])))[0]
+				account = next(a for a in pool if a['provider'] == best['provider'])
 				try:
-					await subtitle_download(tconst, best['provider'], best['id'], best['release'])
+					await subtitle_download(tconst, best['provider'], best['id'], best['release'], [account])
 					state['subs']['done'] += 1
 				except RuntimeError as e:
 					state['subs']['error'] = str(e)
+				account['left']                -= 1
 				quota[best['provider']]['left'] -= 1
 
 		if had_quota:
@@ -896,20 +1111,24 @@ async def subtitle_prefetch():
 		state['subs'] = {'running': False, 'done': state['subs']['done'], 'error': f'{type(e).__name__}: {e}'}
 
 
-async def subtitle_search(tconst: int, providers: tuple = ('subdl', 'os')) -> list:
+async def subtitle_search(tconst: int, providers: tuple = ('subdl', 'os'), accounts: list | None = None) -> list:
 	'''
-	Search SubDL, then OpenSubtitles if SubDL found nothing, for English subtitles, and cache the results. Raises RuntimeError when every provider failed.
+	Search SubDL, then OpenSubtitles if SubDL found nothing, for English subtitles, and cache the results. Each provider uses a random key from the pool. Raises RuntimeError when every provider failed.
 
 	:param tconst: Numeric title id
 	:param providers: Providers to search
+	:param accounts: Pooled keys to pick from (default: the whole pool)
 	'''
 
 	ep      = await subtitle_target(tconst)
+	pool    = accounts if accounts is not None else await subtitle_accounts()
+	subdl   = [a for a in pool if a['provider'] == 'subdl']
+	os_keys = [a for a in pool if a['provider'] == 'os']
 	results = []
 	errors  = []
 
-	if 'subdl' in providers and (key := await setting('subdl_key')):
-		params = {'api_key': key, 'languages': 'EN', 'subs_per_page': 30} | ({'imdb_id': fmt_id('tt', ep['parent']), 'type': 'tv', 'season_number': ep['season'], 'episode_number': ep['episode']} if ep else {'imdb_id': fmt_id('tt', tconst), 'type': 'movie'})
+	if 'subdl' in providers and subdl:
+		params = {'api_key': random.choice(subdl)['key'], 'languages': 'EN', 'subs_per_page': 30} | ({'imdb_id': fmt_id('tt', ep['parent']), 'type': 'tv', 'season_number': ep['season'], 'episode_number': ep['episode']} if ep else {'imdb_id': fmt_id('tt', tconst), 'type': 'movie'})
 		try:
 			async with state['session'].get('https://api.subdl.com/api/v1/subtitles', params=params) as response:
 				data = await response.json(content_type=None)
@@ -919,10 +1138,10 @@ async def subtitle_search(tconst: int, providers: tuple = ('subdl', 'os')) -> li
 		except (aiohttp.ClientError, asyncio.TimeoutError, ValueError, RuntimeError) as e:
 			errors.append(f'SubDL: {e}')
 
-	if not results and 'os' in providers and await setting('os_key'):
+	if not results and 'os' in providers and os_keys:
 		params = {'languages': 'en'} | ({'parent_imdb_id': ep['parent'], 'season_number': ep['season'], 'episode_number': ep['episode']} if ep else {'imdb_id': tconst})
 		try:
-			data    = await opensubtitles_request('GET', 'subtitles', params=sorted(params.items()))
+			data    = await opensubtitles_request(random.choice(os_keys), 'GET', 'subtitles', params=sorted(params.items()))
 			results = [{'provider': 'os', 'id': str(a['files'][0]['file_id']), 'release': a.get('release') or a['files'][0].get('file_name') or 'subtitle', 'hi': bool(a.get('hearing_impaired')), 'downloads': a.get('download_count')} for a in (d['attributes'] for d in data.get('data', [])) if a.get('files')]
 			results.sort(key=lambda s: -(s['downloads'] or 0))
 		except RuntimeError as e:
@@ -1203,6 +1422,21 @@ async def torrent_search(tconst: int) -> tuple:
 	return sorted(items, key=lambda t: -t['seeders'])[:10], len(items), f'{base}/webui/torrents?{urlencode({"query": rows[0]["show"] or rows[0]["primary_title"]})}'
 
 
+async def user_setting(key: str, default: str = '', user_id: int | None = None) -> str:
+	'''
+	Read one of an account's own settings.
+
+	:param key: Setting name
+	:param default: Value when unset
+	:param user_id: Account id (default: the logged-in account)
+	'''
+
+	async with user_db() as db:
+		rows = await db.execute_fetchall('SELECT value FROM user_settings WHERE user_id = ? AND key = ?', (user_id or g.user['id'], key))
+
+	return rows[0]['value'] if rows else default
+
+
 @asynccontextmanager
 async def user_db():
 	'''Open a connection to the user database (lists, settings, caches).'''
@@ -1214,11 +1448,24 @@ async def user_db():
 
 @app.before_serving
 async def startup():
-	'''Create the user database schema, the shared HTTP session, and the background scheduler.'''
+	'''Create the user database schema and admin account, the shared HTTP session, and the background scheduler.'''
 
 	async with user_db() as db:
+		if 'user_id' not in [row['name'] for row in await db.execute_fetchall('PRAGMA table_info(ratings)')]:
+			for table in ('ratings', 'marks', 'follows', 'lb_unmatched'):
+				if await db.execute_fetchall("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)):
+					await db.execute(f'ALTER TABLE {table} RENAME TO {table}_old')
 		await db.executescript(USER_SCHEMA)
+		await db.execute("INSERT OR IGNORE INTO users (id, name, admin, approved, created) VALUES (1, 'admin', 1, 1, ?)", (time.time(),))
+		await migrate_users(db)
+		admin = (await db.execute_fetchall('SELECT password FROM users WHERE id = 1'))[0]['password']
+		if (password := os.environ.get('ADMIN_PASSWORD')) and not await asyncio.to_thread(password_check, password, admin):
+			await db.execute('UPDATE users SET password = ? WHERE id = 1', (await asyncio.to_thread(password_hash, password),))
+			await db.execute('DELETE FROM sessions WHERE user_id = 1')
 		await db.commit()
+
+	if not os.environ.get('ADMIN_PASSWORD'):
+		print('ADMIN_PASSWORD is not set in .env, the admin account keeps its previous password', file=sys.stderr)
 
 	if (status := read_status()).get('state') == 'running':
 		importer.STATUS_PATH.write_text(json.dumps(status | {'state': 'error', 'finished': time.time(), 'error': 'interrupted by an app restart'}))
@@ -1228,6 +1475,18 @@ async def startup():
 	state['scheduler'] = asyncio.create_task(scheduler())
 	state['images_at'] = time.time()
 	spawn(image_usage())
+
+
+@app.before_request
+async def load_user():
+	'''Look up the logged-in account from the session cookie.'''
+
+	g.user = None
+
+	if (token := request.cookies.get('session')) and not request.path.startswith('/static/'):
+		async with user_db() as db:
+			rows = await db.execute_fetchall('SELECT u.* FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token = ? AND s.expires > ? AND u.approved = 1', (hashlib.sha256(token.encode()).hexdigest(), time.time()))
+		g.user = rows[0] if rows else None
 
 
 @app.after_serving
@@ -1248,17 +1507,20 @@ def inject():
 	def img(path: str | None, size: str = 'w185') -> str:
 		return f'/img/{size}{path}' if path else ''
 
-	return {'fmt_id': fmt_id, 'json': json, 'page_url': page_url, 'img': img, 'status': read_status(), 'no_photo': 'data:image/svg+xml,' + quote(NO_PHOTO)}
+	return {'fmt_id': fmt_id, 'json': json, 'page_url': page_url, 'img': img, 'status': read_status(), 'no_photo': 'data:image/svg+xml,' + quote(NO_PHOTO), 'user': g.get('user')}
 
 
 @app.context_processor
 async def inject_mine():
-	'''Expose the user's marks, ratings, follows, and streaming providers to all templates.'''
+	'''Expose the logged-in account's marks, ratings, follows, and streaming providers to all templates (all empty for guests).'''
+
+	if not g.get('user'):
+		return {'mine': {'watched': set(), 'watchlist': set(), 'tt': {}, 'nm': {}, 'follows': set(), 'providers': set()}}
 
 	async with user_db() as db:
-		marks   = await db.execute_fetchall('SELECT tconst, mark FROM marks')
-		ratings = await db.execute_fetchall('SELECT kind, id, rating FROM ratings')
-		follows = await db.execute_fetchall('SELECT nconst FROM follows')
+		marks   = await db.execute_fetchall('SELECT tconst, mark FROM marks WHERE user_id = ?', (g.user['id'],))
+		ratings = await db.execute_fetchall('SELECT kind, id, rating FROM ratings WHERE user_id = ?', (g.user['id'],))
+		follows = await db.execute_fetchall('SELECT nconst FROM follows WHERE user_id = ?', (g.user['id'],))
 
 	return {'mine': {'watched': {m['tconst'] for m in marks if m['mark'] == 'watched'}, 'watchlist': {m['tconst'] for m in marks if m['mark'] == 'watchlist'}, 'tt': {r['id']: r['rating'] for r in ratings if r['kind'] == 'tt'}, 'nm': {r['id']: r['rating'] for r in ratings if r['kind'] == 'nm'}, 'follows': {f['nconst'] for f in follows}, 'providers': set(await my_providers())}}
 
@@ -1286,6 +1548,89 @@ async def not_built(_):
 	'''Show the build status page when the database is missing.'''
 
 	return await render_template('building.html'), 503
+
+
+@app.route('/account', methods=['POST'])
+@require()
+async def account():
+	'''Change the logged-in account's password, or delete the account. Both need the current password.'''
+
+	form = await request.form
+
+	if g.user['admin']:
+		abort(403)
+
+	if not await asyncio.to_thread(password_check, form.get('current', ''), g.user['password']):
+		return redirect('/settings?account=wrong')
+
+	if form.get('action') == 'delete':
+		await delete_user(g.user['id'])
+		response = redirect('/')
+		response.delete_cookie('session')
+		return response
+
+	if not 6 <= len(password := form.get('password', '')) <= 100:
+		return redirect('/settings?account=length')
+
+	async with user_db() as db:
+		await db.execute('UPDATE users SET password = ? WHERE id = ?', (await asyncio.to_thread(password_hash, password), g.user['id']))
+		await db.execute('DELETE FROM sessions WHERE user_id = ? AND token != ?', (g.user['id'], hashlib.sha256(request.cookies['session'].encode()).hexdigest()))
+		await db.commit()
+
+	return redirect('/settings?account=changed')
+
+
+@app.route('/admin', methods=['GET', 'POST'])
+@require(admin=True)
+async def admin():
+	'''Manage accounts and registration (POST applies an action).'''
+
+	if request.method == 'POST':
+		form    = await request.form
+		action  = form.get('action')
+		user_id = form.get('user_id', 0, type=int)
+
+		if action == 'delete' and user_id != 1:
+			await delete_user(user_id)
+
+		async with user_db() as db:
+			if action == 'registration':
+				await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('registration', 'open' if form.get('registration') else 'closed'), ('approval', '1' if form.get('approval') else '0')])
+			elif action == 'approve':
+				await db.execute('UPDATE users SET approved = 1 WHERE id = ?', (user_id,))
+			elif action == 'password' and user_id != 1 and 6 <= len(password := form.get('password', '')) <= 100:
+				await db.execute('UPDATE users SET password = ? WHERE id = ?', (await asyncio.to_thread(password_hash, password), user_id))
+				await db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
+			await db.commit()
+
+		return redirect('/admin')
+
+	async with user_db() as db:
+		users = await db.execute_fetchall('''
+			SELECT u.id, u.name, u.admin, u.approved, u.created,
+				(SELECT count(*) FROM lists WHERE user_id = u.id) AS lists,
+				(SELECT count(*) FROM ratings WHERE user_id = u.id) AS ratings,
+				(SELECT count(*) FROM marks WHERE user_id = u.id) AS marks,
+				EXISTS (SELECT 1 FROM subtitle_keys k WHERE k.user_id = u.id AND (k.subdl_key != '' OR k.os_key != '')) AS sub_keys,
+				(SELECT max(expires) FROM sessions WHERE user_id = u.id) - ? AS last_login
+			FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
+		''', (SESSION_AGE,))
+
+	return await render_template('admin.html', users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'))
+
+
+@app.route('/captcha/<token>.svg')
+async def captcha(token: str):
+	'''
+	Draw a register captcha.
+
+	:param token: Captcha id from captcha_new()
+	'''
+
+	if token not in state['captchas']:
+		abort(404)
+
+	return Response(captcha_svg(state['captchas'][token][0]), mimetype='image/svg+xml', headers={'Cache-Control': 'no-store'})
 
 
 @app.route('/favicon.ico')
@@ -1360,6 +1705,7 @@ async def index():
 
 
 @app.route('/letterboxd/fix', methods=['GET', 'POST'])
+@require()
 async def lb_fix():
 	'''List Letterboxd films that couldn't be matched and let the user pick the right IMDb title (POST applies it).'''
 
@@ -1367,22 +1713,22 @@ async def lb_fix():
 		form = await request.form
 
 		async with user_db() as db:
-			rows = await db.execute_fetchall('SELECT * FROM lb_unmatched WHERE key = ?', (form['key'],))
+			rows = await db.execute_fetchall('SELECT * FROM lb_unmatched WHERE user_id = ? AND key = ?', (g.user['id'], form['key']))
 			if rows and (tconst := form.get('tconst', type=int)):
 				now = time.time()
 				await db.execute('INSERT OR REPLACE INTO lb_map VALUES (?, ?)', (form['key'], tconst))
 				for section in rows[0]['sections'].split(','):
 					if section in ('watched', 'watchlist'):
-						await db.execute('INSERT OR IGNORE INTO marks VALUES (?, ?, ?)', (tconst, section, now))
+						await db.execute('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', (g.user['id'], tconst, section, now))
 				if rows[0]['rating']:
-					await db.execute('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?)', ('tt', tconst, rows[0]['rating'], now))
-			await db.execute('DELETE FROM lb_unmatched WHERE key = ?', (form['key'],))
+					await db.execute('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', (g.user['id'], 'tt', tconst, rows[0]['rating'], now))
+			await db.execute('DELETE FROM lb_unmatched WHERE user_id = ? AND key = ?', (g.user['id'], form['key']))
 			await db.commit()
 
 		return ''
 
 	async with user_db() as db:
-		items = await db.execute_fetchall('SELECT * FROM lb_unmatched ORDER BY name')
+		items = await db.execute_fetchall('SELECT * FROM lb_unmatched WHERE user_id = ? ORDER BY name', (g.user['id'],))
 
 	candidates = {}
 
@@ -1397,6 +1743,7 @@ async def lb_fix():
 
 
 @app.route('/letterboxd/fix/search')
+@require()
 async def lb_fix_search():
 	'''Return candidate titles for a manual Letterboxd match search.'''
 
@@ -1406,30 +1753,33 @@ async def lb_fix_search():
 
 
 @app.route('/letterboxd/import', methods=['POST'])
+@require()
 async def lb_import():
 	'''Start importing an uploaded Letterboxd export zip and return the sync status partial.'''
 
 	upload = (await request.files).get('export')
 
-	if upload and not state['lb'].get('running'):
-		spawn(letterboxd_import(upload.read()))
+	if upload and not state['lb'].get(g.user['id'], {}).get('running'):
+		spawn(letterboxd_import(g.user['id'], upload.read()))
 		await asyncio.sleep(0.3)
 
 	return await lb_status()
 
 
 @app.route('/letterboxd/sync', methods=['GET', 'POST'])
+@require()
 async def lb_sync():
 	'''Start a Letterboxd sync (POST) and return the sync status partial.'''
 
-	if request.method == 'POST' and not state['lb'].get('running'):
-		spawn(letterboxd_sync())
+	if request.method == 'POST' and not state['lb'].get(g.user['id'], {}).get('running'):
+		spawn(letterboxd_sync(g.user['id']))
 		await asyncio.sleep(0.3)
 
 	return await lb_status()
 
 
 @app.route('/library')
+@require()
 async def library():
 	'''Watchlist, watched, and rated titles/people.'''
 
@@ -1440,13 +1790,14 @@ async def library():
 	size = 96
 
 	async with user_db() as db:
-		counts = (await db.execute_fetchall("SELECT (SELECT count(*) FROM marks WHERE mark = 'watched') AS watched, (SELECT count(*) FROM marks WHERE mark = 'watchlist') AS watchlist, (SELECT count(*) FROM ratings WHERE kind = 'tt') AS rated, (SELECT count(*) FROM ratings WHERE kind = 'nm') AS people, (SELECT avg(rating) FROM ratings WHERE kind = 'tt') AS avg"))[0]
-		histo  = {r['rating']: r['count'] for r in await db.execute_fetchall("SELECT rating, count(*) AS count FROM ratings WHERE kind = ? GROUP BY rating", ('nm' if tab == 'people' else 'tt',))}
+		counts = (await db.execute_fetchall("SELECT (SELECT count(*) FROM marks WHERE user_id = :u AND mark = 'watched') AS watched, (SELECT count(*) FROM marks WHERE user_id = :u AND mark = 'watchlist') AS watchlist, (SELECT count(*) FROM ratings WHERE user_id = :u AND kind = 'tt') AS rated, (SELECT count(*) FROM ratings WHERE user_id = :u AND kind = 'nm') AS people, (SELECT avg(rating) FROM ratings WHERE user_id = :u AND kind = 'tt') AS avg", {'u': g.user['id']}))[0]
+		histo  = {r['rating']: r['count'] for r in await db.execute_fetchall("SELECT rating, count(*) AS count FROM ratings WHERE user_id = ? AND kind = ? GROUP BY rating", (g.user['id'], 'nm' if tab == 'people' else 'tt'))}
 
 	return await render_template('library.html', tab=tab, sort=sort, rows=rows[(page - 1) * size:page * size], total=len(rows), page=page, has_next=len(rows) > page * size, counts=counts, histo=histo, stars=request.args.get('stars', type=int), services=request.args.get('services') == '1')
 
 
 @app.route('/library/export.<fmt>')
+@require()
 async def library_export(fmt: str):
 	'''
 	Export a library tab as CSV or JSON.
@@ -1486,25 +1837,27 @@ async def library_rows(tab: str, sort: str) -> list:
 
 	stars    = request.args.get('stars', type=int)
 	services = await my_providers() if request.args.get('services') == '1' else []
+	uid      = g.user['id']
 
 	if tab == 'people':
-		return await query(f"SELECT n.*, r.rating AS my_rating FROM u.ratings r JOIN names n ON n.nconst = r.id WHERE r.kind = 'nm' {'AND r.rating = ?' if stars else ''} ORDER BY r.rating DESC, n.score DESC", (stars,) if stars else ())
+		return await query(f"SELECT n.*, r.rating AS my_rating FROM u.ratings r JOIN names n ON n.nconst = r.id WHERE r.user_id = {uid} AND r.kind = 'nm' {'AND r.rating = ?' if stars else ''} ORDER BY r.rating DESC, n.score DESC", (stars,) if stars else ())
 
-	source = {'watchlist': "SELECT tconst, added FROM u.marks WHERE mark = 'watchlist'", 'watched': "SELECT tconst, added FROM u.marks WHERE mark = 'watched'"}.get(tab, f"SELECT id AS tconst, updated AS added FROM u.ratings WHERE kind = 'tt' {'AND rating = ?' if stars else ''}")
+	source = {'watchlist': f"SELECT tconst, added FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist'", 'watched': f"SELECT tconst, added FROM u.marks WHERE user_id = {uid} AND mark = 'watched'"}.get(tab, f"SELECT id AS tconst, updated AS added FROM u.ratings WHERE user_id = {uid} AND kind = 'tt' {'AND rating = ?' if stars else ''}")
 	order  = {'added': 'm.added DESC', 'rating': 't.rating DESC', 'mine': 'my_rating DESC', 'year': 't.start_year DESC', 'title': 't.primary_title COLLATE NOCASE'}.get(sort, 'm.added DESC')
 	extra  = f'WHERE t.tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))' if services else ''
 
 	return await query(f'''
 		SELECT t.*, m.added, r.rating AS my_rating,
-			EXISTS (SELECT 1 FROM u.marks w WHERE w.tconst = t.tconst AND w.mark = 'watched') AS watched,
-			EXISTS (SELECT 1 FROM u.marks w WHERE w.tconst = t.tconst AND w.mark = 'watchlist') AS watchlist
-		FROM ({source}) m JOIN titles t ON t.tconst = m.tconst LEFT JOIN u.ratings r ON r.kind = 'tt' AND r.id = t.tconst
+			EXISTS (SELECT 1 FROM u.marks w WHERE w.user_id = {uid} AND w.tconst = t.tconst AND w.mark = 'watched') AS watched,
+			EXISTS (SELECT 1 FROM u.marks w WHERE w.user_id = {uid} AND w.tconst = t.tconst AND w.mark = 'watchlist') AS watchlist
+		FROM ({source}) m JOIN titles t ON t.tconst = m.tconst LEFT JOIN u.ratings r ON r.user_id = {uid} AND r.kind = 'tt' AND r.id = t.tconst
 		{extra}
 		ORDER BY {order}, t.votes DESC
 	''', ((stars,) if stars and tab == 'ratings' else ()) + tuple(services))
 
 
 @app.route('/list/<int:list_id>')
+@require()
 async def list_view(list_id: int):
 	'''
 	Show a list's titles.
@@ -1515,8 +1868,8 @@ async def list_view(list_id: int):
 	sort = request.args.get('sort', 'added')
 
 	async with user_db() as db:
-		rows  = await db.execute_fetchall('SELECT * FROM lists WHERE id = ?', (list_id,))
-		items = await db.execute_fetchall('SELECT tconst, added FROM list_items WHERE list_id = ? ORDER BY added DESC', (list_id,))
+		rows  = await db.execute_fetchall('SELECT * FROM lists WHERE id = ? AND user_id = ?', (list_id, g.user['id']))
+		items = await db.execute_fetchall('SELECT tconst, added FROM list_items WHERE list_id = ? ORDER BY added DESC', (list_id,)) if rows else []
 
 	if not rows:
 		abort(404)
@@ -1535,6 +1888,7 @@ async def list_view(list_id: int):
 
 
 @app.route('/list/<int:list_id>/delete', methods=['POST'])
+@require()
 async def list_delete(list_id: int):
 	'''
 	Delete a list.
@@ -1544,13 +1898,14 @@ async def list_delete(list_id: int):
 
 	async with user_db() as db:
 		await db.execute('PRAGMA foreign_keys = ON')
-		await db.execute('DELETE FROM lists WHERE id = ?', (list_id,))
+		await db.execute('DELETE FROM lists WHERE id = ? AND user_id = ?', (list_id, g.user['id']))
 		await db.commit()
 
 	return redirect('/lists')
 
 
 @app.route('/list/<int:list_id>/edit', methods=['POST'])
+@require()
 async def list_edit(list_id: int):
 	'''
 	Rename a list or change its description.
@@ -1561,13 +1916,14 @@ async def list_edit(list_id: int):
 	form = await request.form
 
 	async with user_db() as db:
-		await db.execute('UPDATE lists SET name = ?, description = ?, updated = ? WHERE id = ?', (form['name'].strip() or 'Untitled', form.get('description', '').strip(), time.time(), list_id))
+		await db.execute('UPDATE lists SET name = ?, description = ?, updated = ? WHERE id = ? AND user_id = ?', (form['name'].strip() or 'Untitled', form.get('description', '').strip(), time.time(), list_id, g.user['id']))
 		await db.commit()
 
 	return redirect(f'/list/{list_id}')
 
 
 @app.route('/list/<int:list_id>/export.<fmt>')
+@require()
 async def list_export(list_id: int, fmt: str):
 	'''
 	Export a list as CSV or JSON.
@@ -1577,8 +1933,8 @@ async def list_export(list_id: int, fmt: str):
 	'''
 
 	async with user_db() as db:
-		rows  = await db.execute_fetchall('SELECT name FROM lists WHERE id = ?', (list_id,))
-		items = await db.execute_fetchall('SELECT tconst, added FROM list_items WHERE list_id = ? ORDER BY added', (list_id,))
+		rows  = await db.execute_fetchall('SELECT name FROM lists WHERE id = ? AND user_id = ?', (list_id, g.user['id']))
+		items = await db.execute_fetchall('SELECT tconst, added FROM list_items WHERE list_id = ? ORDER BY added', (list_id,)) if rows else []
 
 	if not rows or fmt not in ('csv', 'json'):
 		abort(404)
@@ -1600,6 +1956,7 @@ async def list_export(list_id: int, fmt: str):
 
 
 @app.route('/lists', methods=['GET', 'POST'])
+@require()
 async def lists():
 	'''Show all lists, or create a new one.'''
 
@@ -1608,7 +1965,7 @@ async def lists():
 		now  = time.time()
 
 		async with user_db() as db:
-			cursor = await db.execute('INSERT INTO lists (name, description, created, updated) VALUES (?, ?, ?, ?)', (form['name'].strip() or 'Untitled', form.get('description', '').strip(), now, now))
+			cursor = await db.execute('INSERT INTO lists (name, description, created, updated, user_id) VALUES (?, ?, ?, ?, ?)', (form['name'].strip() or 'Untitled', form.get('description', '').strip(), now, now, g.user['id']))
 			if form.get('tconst'):
 				await db.execute('INSERT INTO list_items VALUES (?, ?, ?)', (cursor.lastrowid, int(form['tconst']), now))
 			await db.commit()
@@ -1619,6 +1976,54 @@ async def lists():
 		return redirect(f'/list/{cursor.lastrowid}')
 
 	return await render_template('lists.html', lists=await list_summaries())
+
+
+@app.route('/login', methods=['GET', 'POST'])
+async def login():
+	'''Log in (POST checks the password and starts a 1 year session).'''
+
+	error = None
+	name  = ''
+	dest  = request.args.get('next', '/')
+
+	if request.method == 'POST':
+		form = await request.form
+		name = form.get('name', '').strip()
+		dest = form.get('next', '/')
+
+		async with user_db() as db:
+			rows = await db.execute_fetchall('SELECT * FROM users WHERE name = ?', (name,))
+
+		if not rows or not await asyncio.to_thread(password_check, form.get('password', ''), rows[0]['password']):
+			error = 'Wrong username or password'
+		elif not rows[0]['approved']:
+			error = 'Your account is waiting for admin approval'
+		else:
+			token = secrets.token_urlsafe(32)
+			async with user_db() as db:
+				await db.execute('DELETE FROM sessions WHERE expires < ?', (time.time(),))
+				await db.execute('INSERT INTO sessions VALUES (?, ?, ?)', (hashlib.sha256(token.encode()).hexdigest(), rows[0]['id'], time.time() + SESSION_AGE))
+				await db.commit()
+			response = redirect(dest if dest.startswith('/') and not dest.startswith('//') else '/')
+			response.set_cookie('session', token, max_age=SESSION_AGE, httponly=True, samesite='Lax')
+			return response
+
+	return await render_template('login.html', error=error, name=name, next=dest)
+
+
+@app.route('/logout', methods=['POST'])
+async def logout():
+	'''End the current session.'''
+
+	if token := request.cookies.get('session'):
+		async with user_db() as db:
+			await db.execute('DELETE FROM sessions WHERE token = ?', (hashlib.sha256(token.encode()).hexdigest(),))
+			await db.commit()
+
+	response = redirect('/')
+	response.delete_cookie('session')
+
+	return response
 
 
 @app.route('/name/nm<int:nconst>')
@@ -1653,6 +2058,7 @@ async def name(nconst: int):
 
 
 @app.route('/name/nm<int:nconst>/follow', methods=['POST'])
+@require()
 async def name_follow(nconst: int):
 	'''
 	Toggle following a person for the Upcoming page.
@@ -1661,9 +2067,9 @@ async def name_follow(nconst: int):
 	'''
 
 	async with user_db() as db:
-		cursor = await db.execute('DELETE FROM follows WHERE nconst = ?', (nconst,))
+		cursor = await db.execute('DELETE FROM follows WHERE user_id = ? AND nconst = ?', (g.user['id'], nconst))
 		if not cursor.rowcount:
-			await db.execute('INSERT INTO follows VALUES (?, ?)', (nconst, time.time()))
+			await db.execute('INSERT INTO follows VALUES (?, ?, ?)', (g.user['id'], nconst, time.time()))
 		await db.commit()
 
 	return await render_template('_follow.html', nconst=nconst)
@@ -1723,6 +2129,7 @@ async def poster(imdb_id: str):
 
 
 @app.route('/precache', methods=['GET', 'POST'])
+@require(admin=True)
 async def precache_route():
 	'''Start the offline pre-cache (POST) and return its status partial.'''
 
@@ -1734,6 +2141,7 @@ async def precache_route():
 
 
 @app.route('/rate/<kind>/<int:item_id>', methods=['POST'])
+@require()
 async def rate(kind: str, item_id: int):
 	'''
 	Set, change, or clear (same value again) the user's rating for a title or person.
@@ -1748,17 +2156,18 @@ async def rate(kind: str, item_id: int):
 	value = (await request.form).get('rating', type=int)
 
 	async with user_db() as db:
-		current = await db.execute_fetchall('SELECT rating FROM ratings WHERE kind = ? AND id = ?', (kind, item_id))
+		current = await db.execute_fetchall('SELECT rating FROM ratings WHERE user_id = ? AND kind = ? AND id = ?', (g.user['id'], kind, item_id))
 		if not value or not 1 <= value <= 10 or (current and current[0]['rating'] == value):
-			await db.execute('DELETE FROM ratings WHERE kind = ? AND id = ?', (kind, item_id))
+			await db.execute('DELETE FROM ratings WHERE user_id = ? AND kind = ? AND id = ?', (g.user['id'], kind, item_id))
 		else:
-			await db.execute('INSERT OR REPLACE INTO ratings VALUES (?, ?, ?, ?)', (kind, item_id, value, time.time()))
+			await db.execute('INSERT OR REPLACE INTO ratings VALUES (?, ?, ?, ?, ?)', (g.user['id'], kind, item_id, value, time.time()))
 		await db.commit()
 
 	return await render_template('_stars.html', kind=kind, item_id=item_id)
 
 
 @app.route('/recommend')
+@require()
 async def recommend():
 	'''Recommendations derived from ratings, watched, watchlist, a list, or a single title.'''
 
@@ -1769,13 +2178,13 @@ async def recommend():
 	label  = ''
 
 	async with user_db() as db:
-		all_lists = await db.execute_fetchall('SELECT id, name FROM lists ORDER BY name')
+		all_lists = await db.execute_fetchall('SELECT id, name FROM lists WHERE user_id = ? ORDER BY name', (g.user['id'],))
 		if source == 'ratings':
-			seeds = {r['id']: r['rating'] - 5 for r in await db.execute_fetchall("SELECT id, rating FROM ratings WHERE kind = 'tt' AND rating >= ?", (stars,))}
+			seeds = {r['id']: r['rating'] - 5 for r in await db.execute_fetchall("SELECT id, rating FROM ratings WHERE user_id = ? AND kind = 'tt' AND rating >= ?", (g.user['id'], stars))}
 		elif source in ('watched', 'watchlist'):
-			seeds = {r['tconst']: 1 for r in await db.execute_fetchall('SELECT tconst FROM marks WHERE mark = ? ORDER BY added DESC LIMIT 200', (source,))}
+			seeds = {r['tconst']: 1 for r in await db.execute_fetchall('SELECT tconst FROM marks WHERE user_id = ? AND mark = ? ORDER BY added DESC LIMIT 200', (g.user['id'], source))}
 		elif source.startswith('list:') and source[5:].isdigit():
-			seeds = {r['tconst']: 1 for r in await db.execute_fetchall('SELECT tconst FROM list_items WHERE list_id = ?', (int(source[5:]),))}
+			seeds = {r['tconst']: 1 for r in await db.execute_fetchall('SELECT i.tconst FROM list_items i JOIN lists l ON l.id = i.list_id WHERE l.id = ? AND l.user_id = ?', (int(source[5:]), g.user['id']))}
 		elif source.startswith('title:') and source[6:].isdigit():
 			seeds = {int(source[6:]): 1}
 			label = (await titles_by_ids([int(source[6:])])).get(int(source[6:]), {'primary_title': ''})['primary_title']
@@ -1793,6 +2202,40 @@ async def recommend():
 		results = [r for r in results if r['t']['tconst'] in streamable]
 
 	return await render_template('recommend.html', results=results[:60], source=source, stars=stars, kind=kind, lists=all_lists, seeds=len(seeds), label=label, services=request.args.get('services') == '1')
+
+
+@app.route('/register', methods=['GET', 'POST'])
+async def register():
+	'''Sign up for an account (POST checks the captcha and creates it, pending approval when that is turned on).'''
+
+	closed = await setting('registration', 'open') != 'open'
+	error  = None
+	name   = ''
+	done   = None
+
+	if request.method == 'POST' and not closed:
+		form     = await request.form
+		name     = form.get('name', '').strip()
+		password = form.get('password', '')
+		answer   = state['captchas'].pop(form.get('captcha_id', ''), None)
+
+		if not answer or answer[1] < time.time() or form.get('captcha', '').strip().upper() != answer[0]:
+			error = 'Wrong captcha, try this new one'
+		elif not re.fullmatch(r'[A-Za-z]{3,15}', name):
+			error = 'Username must be 3 to 15 letters (A-Z only)'
+		elif not 6 <= len(password) <= 100:
+			error = 'Password must be 6 to 100 characters'
+		else:
+			approved = await setting('approval', '1') != '1'
+			try:
+				async with user_db() as db:
+					await db.execute('INSERT INTO users (name, password, admin, approved, created) VALUES (?, ?, 0, ?, ?)', (name, await asyncio.to_thread(password_hash, password), int(approved), time.time()))
+					await db.commit()
+				done = 'approved' if approved else 'pending'
+			except sqlite3.IntegrityError:
+				error = 'That username is taken'
+
+	return await render_template('register.html', closed=closed, error=error, name=name, done=done, captcha=None if closed or done else captcha_new())
 
 
 @app.route('/search')
@@ -1823,22 +2266,28 @@ async def search():
 
 
 @app.route('/settings', methods=['GET', 'POST'])
+@require()
 async def settings():
-	'''View and change settings, and show database status.'''
+	'''View and change the account's settings, plus the site settings and database status for the admin.'''
+
+	uid = g.user['id']
 
 	if request.method == 'POST':
 		form = await request.form
 
 		async with user_db() as db:
-			for key in ('tmdb_key', 'letterboxd_user', 'subdl_key', 'os_key', 'os_user', 'os_pass', 'bm_url', 'bm_user', 'bm_pass'):
-				if key in form:
-					await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
-			if 'os_user' in form:
-				state.pop('os_token', None)
-				state.pop('os_host', None)
+			if 'letterboxd_user' in form:
+				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'letterboxd_user', form['letterboxd_user'].strip()))
 			if form.get('providers_form'):
-				await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', ('providers', json.dumps([int(p) for p in form.getlist('provider')])))
-			if form.get('clear_posters'):
+				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'providers', json.dumps([int(p) for p in form.getlist('provider')])))
+			if 'subdl_key' in form:
+				await db.execute('INSERT OR REPLACE INTO subtitle_keys VALUES (?, ?, ?, ?, ?)', (uid, *(form.get(key, '').strip() for key in ('subdl_key', 'os_key', 'os_user', 'os_pass'))))
+				state['os_tokens'].pop(f'os:{uid}', None)
+			if g.user['admin']:
+				for key in ('tmdb_key', 'bm_url', 'bm_user', 'bm_pass'):
+					if key in form:
+						await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
+			if g.user['admin'] and form.get('clear_posters'):
 				await db.execute('DELETE FROM posters')
 				await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
 				await db.execute('DELETE FROM title_providers')
@@ -1849,22 +2298,31 @@ async def settings():
 		return redirect('/settings')
 
 	async with user_db() as db:
-		cached = await db.execute_fetchall('SELECT source, count(*) AS count FROM posters GROUP BY source')
-		tmdb_n = (await db.execute_fetchall("SELECT count(*) AS n FROM tmdb WHERE data IS NOT NULL AND (id LIKE 'tt%' OR id LIKE 'nm%')"))[0]['n']
+		keys = await db.execute_fetchall('SELECT * FROM subtitle_keys WHERE user_id = ?', (uid,))
 
 	providers = await tmdb_cached('providers:US', 'watch/providers/movie', 30 * 86400, {'watch_region': 'US'})
 	providers = sorted((providers or {}).get('results', []), key=lambda p: p.get('display_priorities', {}).get('US', 999))
-	meta      = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
-	size      = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
-	images    = state['images']
+	subs      = dict(keys[0]) if keys else {'subdl_key': '', 'os_key': '', 'os_user': '', 'os_pass': ''}
+	page      = {'letterboxd_user': await user_setting('letterboxd_user'), 'providers': providers, 'selected': set(await my_providers()), 'subs': subs, 'account': request.args.get('account')}
+
+	if not g.user['admin']:
+		return await render_template('settings.html', **page)
+
+	async with user_db() as db:
+		cached = await db.execute_fetchall('SELECT source, count(*) AS count FROM posters GROUP BY source')
+		tmdb_n = (await db.execute_fetchall("SELECT count(*) AS n FROM tmdb WHERE data IS NOT NULL AND (id LIKE 'tt%' OR id LIKE 'nm%')"))[0]['n']
+
+	meta   = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
+	size   = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
+	images = state['images']
 
 	if time.time() - state['images_at'] >= 600:
 		state['images_at'] = time.time()
 		spawn(image_usage())
 
-	subs      = {key: await setting(key) for key in ('subdl_key', 'os_key', 'os_user', 'os_pass')} | {'files': sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0}
+	subs['files'] = sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0
 
-	return await render_template('settings.html', tmdb_key=await setting('tmdb_key'), letterboxd_user=await setting('letterboxd_user'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, providers=providers, selected=set(await my_providers()), subs=subs, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
+	return await render_template('settings.html', **page, tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
 
 
 @app.route('/title/tt<int:tconst>')
@@ -1890,10 +2348,11 @@ async def title(tconst: int):
 		for ep in await query('SELECT e.season, e.episode, t.* FROM episodes e JOIN titles t ON t.tconst = e.tconst WHERE e.parent = ? ORDER BY e.season IS NULL, e.season, e.episode', (tconst,)):
 			seasons.setdefault(ep['season'], []).append(ep)
 
-	return await render_template('title.html', t=rows[0], cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, akas=akas, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst))
+	return await render_template('title.html', t=rows[0], cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, akas=akas, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst) if g.user else '')
 
 
 @app.route('/title/tt<int:tconst>/mark', methods=['POST'])
+@require()
 async def title_mark(tconst: int):
 	'''
 	Toggle watched/watchlist for a title; marking watched removes it from the watchlist.
@@ -1907,17 +2366,18 @@ async def title_mark(tconst: int):
 		abort(400)
 
 	async with user_db() as db:
-		cursor = await db.execute('DELETE FROM marks WHERE tconst = ? AND mark = ?', (tconst, mark))
+		cursor = await db.execute('DELETE FROM marks WHERE user_id = ? AND tconst = ? AND mark = ?', (g.user['id'], tconst, mark))
 		if not cursor.rowcount:
-			await db.execute('INSERT INTO marks VALUES (?, ?, ?)', (tconst, mark, time.time()))
+			await db.execute('INSERT INTO marks VALUES (?, ?, ?, ?)', (g.user['id'], tconst, mark, time.time()))
 			if mark == 'watched':
-				await db.execute("DELETE FROM marks WHERE tconst = ? AND mark = 'watchlist'", (tconst,))
+				await db.execute("DELETE FROM marks WHERE user_id = ? AND tconst = ? AND mark = 'watchlist'", (g.user['id'], tconst))
 		await db.commit()
 
 	return await render_template('_marks.html', tconst=tconst)
 
 
 @app.route('/title/tt<int:tconst>/lists', methods=['GET', 'POST'])
+@require()
 async def title_lists(tconst: int) -> str:
 	'''
 	Render (and on POST toggle) a title's list memberships.
@@ -1929,19 +2389,21 @@ async def title_lists(tconst: int) -> str:
 		list_id = int(form['list_id'])
 
 		async with user_db() as db:
-			cursor = await db.execute('DELETE FROM list_items WHERE list_id = ? AND tconst = ?', (list_id, tconst))
-			if not cursor.rowcount:
-				await db.execute('INSERT INTO list_items VALUES (?, ?, ?)', (list_id, tconst, time.time()))
-			await db.execute('UPDATE lists SET updated = ? WHERE id = ?', (time.time(), list_id))
-			await db.commit()
+			if await db.execute_fetchall('SELECT 1 FROM lists WHERE id = ? AND user_id = ?', (list_id, g.user['id'])):
+				cursor = await db.execute('DELETE FROM list_items WHERE list_id = ? AND tconst = ?', (list_id, tconst))
+				if not cursor.rowcount:
+					await db.execute('INSERT INTO list_items VALUES (?, ?, ?)', (list_id, tconst, time.time()))
+				await db.execute('UPDATE lists SET updated = ? WHERE id = ?', (time.time(), list_id))
+				await db.commit()
 
 	async with user_db() as db:
-		member = {row['list_id'] for row in await db.execute_fetchall('SELECT list_id FROM list_items WHERE tconst = ?', (tconst,))}
+		member = {row['list_id'] for row in await db.execute_fetchall('SELECT i.list_id FROM list_items i JOIN lists l ON l.id = i.list_id WHERE i.tconst = ? AND l.user_id = ?', (tconst, g.user['id']))}
 
 	return await render_template('_lists.html', tconst=tconst, lists=await list_summaries(), member=member)
 
 
 @app.route('/subs', methods=['GET', 'POST'])
+@require(admin=True)
 async def subs_route():
 	'''Start the subtitle prefetch (POST) and return its status partial.'''
 
@@ -1955,7 +2417,7 @@ async def subs_route():
 	library = [r['tconst'] for r in await query("SELECT tconst FROM titles WHERE tconst IN (SELECT tconst FROM u.marks UNION SELECT tconst FROM u.list_items) AND type NOT IN ('tvSeries', 'tvMiniSeries')")]
 	saved   = {int(d.name[2:]) for d in SUBS_DIR.iterdir() if any(d.glob('*.srt'))} if SUBS_DIR.exists() else set()
 	quota   = state['subs']['quota'] if state['subs'].get('running') else await subtitle_quota()
-	daily   = sum(q['limit'] for q in quota.values())
+	daily   = quota['subdl']['limit'] + quota['os']['limit']
 	stats   = {'total': len(library), 'saved': len(saved & set(library)), 'none': len(empty & set(library) - saved)}
 	stats  |= {'left': stats['total'] - stats['saved'] - stats['none'], 'days': -(-(stats['total'] - stats['saved'] - stats['none']) // daily) if daily else None}
 
@@ -1963,6 +2425,7 @@ async def subs_route():
 
 
 @app.route('/title/tt<int:tconst>/subs', methods=['GET', 'POST'])
+@require()
 async def title_subs(tconst: int):
 	'''
 	Render a title's subtitles: downloaded files plus cached search results. ?search=1 searches the providers, POST downloads one.
@@ -1990,10 +2453,11 @@ async def title_subs(tconst: int):
 	for r in results or []:
 		r['file'] = subtitle_name(r['release'])
 
-	return await render_template('_subs.html', tconst=tconst, files=files, results=results, fetched=rows[0]['fetched'] if rows else None, error=error, keys=bool(await setting('subdl_key') or await setting('os_key')))
+	return await render_template('_subs.html', tconst=tconst, files=files, results=results, fetched=rows[0]['fetched'] if rows else None, error=error, keys=bool(await subtitle_accounts()))
 
 
 @app.route('/title/tt<int:tconst>/subs/<filename>')
+@require()
 async def title_subs_file(tconst: int, filename: str):
 	'''
 	Serve a downloaded subtitle file.
@@ -2070,28 +2534,32 @@ async def titles():
 	if sort == 'rating' and not args.get('votes'):
 		where.append('votes >= 1000')
 
-	if args.get('mine') in MINE_FILTERS:
-		where.append(MINE_FILTERS[args['mine']])
+	if not g.user and sort == 'mine':
+		sort = 'votes'
+
+	if g.user and args.get('mine') in MINE_FILTERS:
+		where.append(MINE_FILTERS[args['mine']].format(uid=g.user['id']))
 
 	if sort == 'mine':
-		where.append(MINE_FILTERS['rated'])
+		where.append(MINE_FILTERS['rated'].format(uid=g.user['id']))
 
 	if args.get('services') == '1' and (services := await my_providers()):
 		where.append(f'tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))')
 		params.extend(services)
 
-	sql  = f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY {TITLE_SORTS.get(sort, TITLE_SORTS["votes"])} LIMIT ? OFFSET ?'
+	sql  = f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY {TITLE_SORTS.get(sort, TITLE_SORTS["votes"]).format(uid=g.user["id"] if g.user else 0)} LIMIT ? OFFSET ?'
 	rows = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
 
 	return await render_template('titles.html', titles=rows[:PAGE_SIZE], has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES)
 
 
 @app.route('/upcoming')
+@require()
 async def upcoming():
 	'''Upcoming and recent releases from followed people.'''
 
 	async with user_db() as db:
-		follows = [r['nconst'] for r in await db.execute_fetchall('SELECT nconst FROM follows ORDER BY added DESC')]
+		follows = [r['nconst'] for r in await db.execute_fetchall('SELECT nconst FROM follows WHERE user_id = ? ORDER BY added DESC', (g.user['id'],))]
 
 	people  = {row['nconst']: row for row in await query(f'SELECT * FROM names WHERE nconst IN ({",".join("?" * len(follows))})', follows)} if follows else {}
 	today   = time.strftime('%Y-%m-%d')
@@ -2123,6 +2591,7 @@ async def upcoming():
 
 
 @app.route('/update', methods=['GET', 'POST'])
+@require(admin=True)
 async def update():
 	'''Start the importer (POST) and return the status partial.'''
 
