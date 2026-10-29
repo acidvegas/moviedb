@@ -2609,9 +2609,11 @@ async def upcoming():
 
 
 @app.route('/update', methods=['GET', 'POST'])
-@require(admin=True)
 async def update():
-	'''Start the importer (POST) and return the status partial.'''
+	'''Start the importer (POST, admin only) and return the status partial (public, for the building page).'''
+
+	if request.method == 'POST' and not (g.user and g.user['admin']):
+		abort(403)
 
 	if request.method == 'POST' and read_status().get('state') != 'running':
 		await start_import()
