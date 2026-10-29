@@ -19,7 +19,7 @@
 	<div class="mt-4 flex flex-wrap justify-center gap-2 text-sm">
 		<a href="/" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Home</a>
 		<a href="/titles" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">Browse titles</a>
-		<a href="/library" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">My library</a>
+		{% if user %}<a href="/library" class="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700">My library</a>{% endif %}
 	</div>
 </div>
 {% endblock %}

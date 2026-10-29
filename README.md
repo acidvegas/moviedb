@@ -4,7 +4,9 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 
 ## Features
 
-- Browse and search all 12M+ IMDb titles and the people credited on them
+- Browse and search all 12M+ IMDb titles and the people credited on them, no account needed
+- Accounts with their own ratings, lists, watchlist, Letterboxd sync and streaming services *(username and password only, no email, captcha on sign up)*
+- Admin page to approve, delete or reset the password of any account, and to close registration or require approval
 - Title pages with plot, trailer, full cast and crew, streaming availability and more from TMDB
 - Rate titles and people *(half-star steps)*, mark titles watched or add them to your watchlist
 - Custom lists with CSV/JSON export
@@ -12,7 +14,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - Follow directors and actors to see their upcoming and recent releases
 - Letterboxd sync *(daily watchlist sync plus full import from a Letterboxd export zip)*
 - Filter by the streaming services you subscribe to
-- English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for your library
+- English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for every library *(users can add their own API keys to a shared pool)*
 - Links to 28 third-party streaming sites on every title page *(direct links where the site uses TMDB/IMDb ids, otherwise a search)*
 - Top torrents by seeders from a [bitmagnet](https://bitmagnet.io/) instance, with magnet copy and a link to search for more *(optional)*
 - Offline: posters, details and all assets are stored locally and pre-cached for the most popular titles
@@ -36,7 +38,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 
 This creates a venv, installs the dependencies, writes `.env`, and installs and starts a `moviedb` systemd service. The IMDb database builds on first start, which takes about 30 minutes.
 
-Then open `http://<server-ip>:5000`, go to **Settings**, and add your TMDB key, Letterboxd username and streaming services.
+Set `ADMIN_PASSWORD` in `.env`, restart the service, then open `http://<server-ip>:5000`, log in as `admin`, go to **Settings**, and add your TMDB key, Letterboxd username and streaming services.
 
 ## Running manually
 
@@ -52,12 +54,13 @@ To build or update the database by hand, run `venv/bin/python importer.py`.
 
 Set in `.env` *(see `.env.example`)*:
 
-| Variable | Default   | Description        |
-|----------|-----------|--------------------|
-| `HOST`   | `0.0.0.0` | Address to bind to |
-| `PORT`   | `5000`    | Port to listen on  |
+| Variable         | Default   | Description                                                |
+|------------------|-----------|------------------------------------------------------------|
+| `HOST`           | `0.0.0.0` | Address to bind to                                         |
+| `PORT`           | `5000`    | Port to listen on                                          |
+| `ADMIN_PASSWORD` |           | Password of the `admin` account *(applied on every start)* |
 
-Everything else is set in the web interface under **Settings**.
+Everything else is set in the web interface under **Settings** *(site settings are admin only)*.
 
 ## Files
 
@@ -67,7 +70,7 @@ Everything else is set in the web interface under **Settings**.
 | `importer.py` | Downloads the IMDb datasets and builds `imdb.db`                  |
 | `setup.sh`    | Installer and systemd service setup                               |
 | `imdb.db`     | IMDb database, rebuilt weekly                                     |
-| `user.db`     | Your ratings, lists, watched/watchlist, settings and caches       |
+| `user.db`     | Accounts, ratings, lists, watched/watchlist, settings and caches  |
 | `data/`       | Downloaded datasets, importer status, cached images and subtitles |
 | `templates/`  | Page templates                                                    |
 | `static/`     | CSS, JS, icons and bundled front-end libraries                    |

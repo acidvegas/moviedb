@@ -34,10 +34,19 @@
 			<a href="/" class="h-14 flex items-center font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
 			<nav class="hidden lg:flex gap-1 text-sm">
 				{% set path = request.path %}
-				{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
+				{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] if user else []) + ([('/admin', 'Admin')] if user and user.admin else []) %}
 				<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-1.5 rounded-md hover:bg-zinc-800 {{ 'text-accent' if path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 				{% endfor %}
 			</nav>
+			<div class="hidden lg:flex order-last items-center gap-2 text-sm shrink-0">
+				{% if user %}
+				<span class="text-zinc-400">{{ user.name }}</span>
+				<form action="/logout" method="post" hx-boost="false"><button class="px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log out</button></form>
+				{% else %}
+				<a href="/login" class="px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log in</a>
+				<a href="/register" class="px-3 py-1.5 rounded-md bg-accent hover:bg-accent-dim text-black font-semibold">Register</a>
+				{% endif %}
+			</div>
 			<div class="ml-auto flex items-center gap-1 lg:hidden">
 				<button type="button" aria-label="Search" class="p-2 rounded-md hover:bg-zinc-800" :class="search ? 'text-accent' : 'text-zinc-300'" @click="search = !search; menu = false; search && $nextTick(() => document.getElementById('quick').focus())">
 					<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
@@ -57,13 +66,22 @@
 			</div>
 		</div>
 		<nav x-show="menu" x-cloak x-transition class="lg:hidden flex flex-col gap-1 text-sm px-4 py-2 border-t border-zinc-800/80">
-			{% for href, label in [('/titles', 'Titles'), ('/names', 'People'), ('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] %}
+			{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] if user else []) + ([('/admin', 'Admin')] if user and user.admin else []) %}
 			<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-2 rounded-md hover:bg-zinc-800 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 			{% endfor %}
+			<div class="mt-1 pt-2 border-t border-zinc-800/80 flex items-center gap-2">
+				{% if user %}
+				<span class="px-3 text-zinc-400">{{ user.name }}</span>
+				<form action="/logout" method="post" hx-boost="false" class="ml-auto"><button class="px-3 py-2 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log out</button></form>
+				{% else %}
+				<a href="/login" class="flex-1 text-center px-3 py-2 rounded-md bg-zinc-900 hover:bg-zinc-800 text-zinc-300">Log in</a>
+				<a href="/register" class="flex-1 text-center px-3 py-2 rounded-md bg-accent hover:bg-accent-dim text-black font-semibold">Register</a>
+				{% endif %}
+			</div>
 		</nav>
 	</header>
 	{% if status.state == 'running' %}
-	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}. <a href="/settings" hx-boost="false" class="underline">Details</a></div>
+	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}.{% if user and user.admin %} <a href="/settings" hx-boost="false" class="underline">Details</a>{% endif %}</div>
 	{% endif %}
 	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">
 		{% if request.path != '/' %}
