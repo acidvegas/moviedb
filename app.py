@@ -1248,7 +1248,7 @@ def inject():
 	def img(path: str | None, size: str = 'w185') -> str:
 		return f'/img/{size}{path}' if path else ''
 
-	return {'fmt_id': fmt_id, 'json': json, 'page_url': page_url, 'img': img, 'status': read_status()}
+	return {'fmt_id': fmt_id, 'json': json, 'page_url': page_url, 'img': img, 'status': read_status(), 'no_photo': 'data:image/svg+xml,' + quote(NO_PHOTO)}
 
 
 @app.context_processor

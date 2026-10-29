@@ -100,7 +100,7 @@
 		{% for c in people %}
 		{% set role = c.character if group == 'cast' else ((c.department ~ ' · ') if c.department else '') ~ (c.job or '') %}
 		<a href="/go/tmdb/person/{{ c.id }}?name={{ c.name | urlencode }}" x-show="(all || {{ loop.index }} <= 24 || q) && (!q || $el.dataset.s.includes(q.toLowerCase()))" data-s="{{ (c.name ~ ' ' ~ (role or '')) | lower }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
-			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0">{% if c.profile %}<img src="{{ img(c.profile, 'w185') }}" loading="lazy" alt="" class="w-full h-full object-cover">{% endif %}</div>
+			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0"><img src="{{ img(c.profile, 'w185') if c.profile else no_photo }}" loading="lazy" alt="" class="w-full h-full object-cover"></div>
 			<div class="min-w-0">
 				<div class="text-sm font-medium truncate group-hover:text-accent">{{ c.name }}</div>
 				<div class="text-xs text-zinc-500 truncate">{{ role }}{% if c.episodes %} · {{ c.episodes }} ep{{ 's' if c.episodes != 1 }}{% endif %}</div>
