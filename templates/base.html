@@ -41,12 +41,13 @@
 			<div class="hidden lg:flex order-last items-center gap-2 text-sm shrink-0">
 				{% if user %}
 				<div class="relative" x-data="{open: false}" @click.outside="open = false" @keydown.escape="open = false">
-					<button type="button" @click="open = !open" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md whitespace-nowrap hover:bg-zinc-800 {{ 'text-accent' if path.startswith('/settings') else 'text-zinc-300' }}">
+					<button type="button" @click="open = !open" class="flex items-center gap-1.5 px-3 py-1.5 rounded-md whitespace-nowrap hover:bg-zinc-800 {{ 'text-accent' if path.startswith(('/settings', '/admin')) else 'text-zinc-300' }}">
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>{{ user.name }}
 						<svg class="w-3 h-3 transition" :class="open && 'rotate-180'" fill="currentColor" viewBox="0 0 20 20"><path d="M5 7l5 6 5-6z"/></svg>
 					</button>
 					<div x-show="open" x-cloak x-transition class="absolute right-0 mt-2 w-44 rounded-xl border border-zinc-800 bg-zinc-900 shadow-2xl p-1.5 text-zinc-300">
 						<a href="/settings" hx-boost="false" class="block px-3 py-2 rounded-md hover:bg-zinc-800">Settings</a>
+						{% if user.admin %}<a href="/admin" hx-boost="false" class="block px-3 py-2 rounded-md hover:bg-zinc-800">Admin</a>{% endif %}
 						<form action="/logout" method="post" hx-boost="false" class="border-t border-zinc-800 mt-1 pt-1"><button class="w-full text-left px-3 py-2 rounded-md hover:bg-zinc-800">Log out</button></form>
 					</div>
 				</div>
@@ -74,8 +75,8 @@
 			</div>
 		</div>
 		<nav x-show="menu" x-cloak x-transition class="lg:hidden flex flex-col gap-1 text-sm px-4 py-2 border-t border-zinc-800/80">
-			{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] if user else []) %}
-			<a href="{{ href }}"{% if href == '/settings' %} hx-boost="false"{% endif %} class="px-3 py-2 rounded-md hover:bg-zinc-800 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
+			{% for href, label in [('/titles', 'Titles'), ('/names', 'People')] + ([('/recommend', 'For you'), ('/upcoming', 'Upcoming'), ('/library', 'Library'), ('/lists', 'Lists'), ('/settings', 'Settings')] if user else []) + ([('/admin', 'Admin')] if user and user.admin else []) %}
+			<a href="{{ href }}"{% if href in ('/settings', '/admin') %} hx-boost="false"{% endif %} class="px-3 py-2 rounded-md hover:bg-zinc-800 {{ 'text-accent' if request.path.startswith(href) else 'text-zinc-300' }}">{{ label }}</a>
 			{% endfor %}
 			<div class="mt-1 pt-2 border-t border-zinc-800/80 flex items-center gap-2">
 				{% if user %}
@@ -89,7 +90,7 @@
 		</nav>
 	</header>
 	{% if status.state == 'running' %}
-	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}.{% if user and user.admin %} <a href="/settings" hx-boost="false" class="underline">Details</a>{% endif %}</div>
+	<div class="bg-accent/10 border-b border-accent/20 text-accent text-xs text-center py-1">Database update in progress: {{ status.step }}.{% if user and user.admin %} <a href="/admin" hx-boost="false" class="underline">Details</a>{% endif %}</div>
 	{% endif %}
 	<main class="mx-auto max-w-7xl px-4 pt-6 pb-12">
 		{% if request.path != '/' %}
