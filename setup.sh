@@ -16,7 +16,7 @@ make_env() {
 		return
 	fi
 
-	printf 'HOST=0.0.0.0\nPORT=5000\n' > .env
+	printf 'HOST=0.0.0.0\nPORT=5000\nADMIN_PASSWORD=\n' > .env
 	echo "[+] wrote .env (HOST=0.0.0.0 PORT=5000)"
 }
 
@@ -54,4 +54,5 @@ make_service
 
 echo
 echo "[*] Open http://<this machine's LAN or Tailscale IP>:$(grep -E '^PORT=' .env | cut -d= -f2)"
+echo "[*] Set ADMIN_PASSWORD in .env, then: sudo systemctl restart $SERVICE"
 echo "[*] The IMDb database builds automatically on first start (~30 min, ~12 GB)."

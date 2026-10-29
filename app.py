@@ -43,7 +43,7 @@ BASE_DIR     = Path(__file__).resolve().parent
 USER_DB      = BASE_DIR / 'user.db'
 IMAGE_DIR    = importer.DATA_DIR / 'images'
 PAGE_SIZE    = 48
-USER_AGENT   = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
+USER_AGENT   = 'MovieDB/1.0'
 TITLE_TYPES  = ['movie', 'tvSeries', 'tvMiniSeries', 'tvMovie', 'tvSpecial', 'short', 'tvShort', 'video', 'tvEpisode', 'tvPilot']
 GENRES       = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'Film-Noir', 'Game-Show', 'History', 'Horror', 'Music', 'Musical', 'Mystery', 'News', 'Reality-TV', 'Romance', 'Sci-Fi', 'Short', 'Sport', 'Talk-Show', 'Thriller', 'War', 'Western']
 TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'newest': 'start_year DESC, votes DESC', 'oldest': 'start_year ASC, votes DESC', 'title': 'primary_title COLLATE NOCASE', 'mine': "(SELECT rating FROM u.ratings WHERE user_id = {uid} AND kind = 'tt' AND id = tconst) DESC, votes DESC"}
@@ -1490,7 +1490,7 @@ async def startup():
 	if (status := read_status()).get('state') == 'running':
 		importer.STATUS_PATH.write_text(json.dumps(status | {'state': 'error', 'finished': time.time(), 'error': 'interrupted by an app restart'}))
 
-	state['session']   = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15))
+	state['session']   = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15), headers={'User-Agent': USER_AGENT})
 	state['tmdb_lock'] = asyncio.Lock()
 	state['scheduler'] = asyncio.create_task(scheduler())
 	state['images_at'] = time.time()
