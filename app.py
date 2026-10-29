@@ -25,7 +25,7 @@ from contextlib   import asynccontextmanager
 from datetime     import datetime
 from html         import unescape
 from pathlib      import Path
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlsplit
 
 try:
 	import aiohttp
@@ -1389,7 +1389,7 @@ async def tmdb_request(path: str, key: str, params: dict | None = None) -> dict 
 
 async def torrent_search(tconst: int) -> tuple:
 	'''
-	Search bitmagnet's Torznab API by IMDb id (episodes search their show). Returns the 10 torrents with the most seeders, the total match count, and a web UI search URL. Raises RuntimeError on failure.
+	Search bitmagnet's Torznab API by IMDb id (episodes search their show). Returns the 10 torrents with the most seeders, the total match count, and a web UI search URL (None for non-admins on the shared server). Raises RuntimeError on failure.
 
 	:param tconst: Numeric title id
 	'''
@@ -1399,9 +1399,11 @@ async def torrent_search(tconst: int) -> tuple:
 	if not rows:
 		return [], 0, None
 
-	base  = (await setting('bm_url')).rstrip('/')
+	own   = await user_setting('bm_url') if g.user else ''
+	base  = (own or await setting('bm_url')).rstrip('/')
 	url   = base + '/torznab/api'
-	auth  = aiohttp.BasicAuth(await setting('bm_user'), await setting('bm_pass')) if await setting('bm_user') else None
+	auth  = aiohttp.BasicAuth(await setting('bm_user'), await setting('bm_pass')) if not own and await setting('bm_user') else None
+	more  = own or (g.user and g.user['admin'])
 	kind  = 'tvsearch' if rows[0]['parent'] or rows[0]['type'] in ('tvSeries', 'tvMiniSeries') else 'movie'
 	items = []
 
@@ -1419,7 +1421,25 @@ async def torrent_search(tconst: int) -> tuple:
 		if len(page) < 100:
 			break
 
-	return sorted(items, key=lambda t: -t['seeders'])[:10], len(items), f'{base}/webui/torrents?{urlencode({"query": rows[0]["show"] or rows[0]["primary_title"]})}'
+	return sorted(items, key=lambda t: -t['seeders'])[:10], len(items), f'{base}/webui/torrents?{urlencode({"query": rows[0]["show"] or rows[0]["primary_title"]})}' if more else None
+
+
+def valid_https_url(url: str) -> bool:
+	'''
+	Check that a URL is https:// on an RFC 1123 hostname with a dot and an alphabetic TLD (no IP addresses, no userinfo).
+
+	:param url: URL to check
+	'''
+
+	try:
+		parts = urlsplit(url)
+		parts.port
+	except ValueError:
+		return False
+
+	host = parts.hostname or ''
+
+	return parts.scheme == 'https' and '@' not in parts.netloc and len(host) <= 253 and re.fullmatch(r'(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:[a-z]{2,63}|xn--[a-z0-9-]{1,59})', host) is not None
 
 
 async def user_setting(key: str, default: str = '', user_id: int | None = None) -> str:
@@ -1580,10 +1600,33 @@ async def account():
 	return redirect('/settings?account=changed')
 
 
-@app.route('/admin', methods=['POST'])
+@app.route('/admin', methods=['GET', 'POST'])
 @require(admin=True)
 async def admin():
-	'''Apply an account or registration action from the admin part of Settings.'''
+	'''View the site settings, accounts and database status, and apply changes to them.'''
+
+	if request.method == 'GET':
+		async with user_db() as db:
+			cached = await db.execute_fetchall('SELECT source, count(*) AS count FROM posters GROUP BY source')
+			tmdb_n = (await db.execute_fetchall("SELECT count(*) AS n FROM tmdb WHERE data IS NOT NULL AND (id LIKE 'tt%' OR id LIKE 'nm%')"))[0]['n']
+			users  = await db.execute_fetchall('''
+				SELECT u.id, u.name, u.admin, u.approved, u.created,
+					(SELECT count(*) FROM lists WHERE user_id = u.id) AS lists,
+					(SELECT count(*) FROM ratings WHERE user_id = u.id) AS ratings,
+					(SELECT count(*) FROM marks WHERE user_id = u.id) AS marks,
+					EXISTS (SELECT 1 FROM subtitle_keys k WHERE k.user_id = u.id AND (k.subdl_key != '' OR k.os_key != '')) AS sub_keys,
+					(SELECT max(expires) FROM sessions WHERE user_id = u.id) - ? AS last_login
+				FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
+			''', (SESSION_AGE,))
+
+		meta = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
+		size = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
+
+		if time.time() - state['images_at'] >= 600:
+			state['images_at'] = time.time()
+			spawn(image_usage())
+
+		return await render_template('admin.html', users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'), tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=state['images'], meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
 
 	form    = await request.form
 	action  = form.get('action')
@@ -1600,9 +1643,18 @@ async def admin():
 		elif action == 'password' and user_id != 1 and 6 <= len(password := form.get('password', '')) <= 100:
 			await db.execute('UPDATE users SET password = ? WHERE id = ?', (await asyncio.to_thread(password_hash, password), user_id))
 			await db.execute('DELETE FROM sessions WHERE user_id = ?', (user_id,))
+		for key in ('tmdb_key', 'bm_url', 'bm_user', 'bm_pass'):
+			if key in form:
+				await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
+		if form.get('clear_posters'):
+			await db.execute('DELETE FROM posters')
+			await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
+			await db.execute('DELETE FROM title_providers')
+			shutil.rmtree(IMAGE_DIR, ignore_errors=True)
+			state['images_at'] = 0.0
 		await db.commit()
 
-	return redirect('/settings#accounts')
+	return redirect('/admin#accounts' if action else '/admin')
 
 
 @app.route('/captcha/<token>.svg')
@@ -2254,7 +2306,7 @@ async def search():
 @app.route('/settings', methods=['GET', 'POST'])
 @require()
 async def settings():
-	'''View and change the account's settings, plus the site settings and database status for the admin.'''
+	'''View and change the account's settings.'''
 
 	uid = g.user['id']
 
@@ -2269,16 +2321,10 @@ async def settings():
 			if 'subdl_key' in form:
 				await db.execute('INSERT OR REPLACE INTO subtitle_keys VALUES (?, ?, ?, ?, ?)', (uid, *(form.get(key, '').strip() for key in ('subdl_key', 'os_key', 'os_user', 'os_pass'))))
 				state['os_tokens'].pop(f'os:{uid}', None)
-			if g.user['admin']:
-				for key in ('tmdb_key', 'bm_url', 'bm_user', 'bm_pass'):
-					if key in form:
-						await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', (key, form[key].strip()))
-			if g.user['admin'] and form.get('clear_posters'):
-				await db.execute('DELETE FROM posters')
-				await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
-				await db.execute('DELETE FROM title_providers')
-				shutil.rmtree(IMAGE_DIR, ignore_errors=True)
-				state['images_at'] = 0.0
+			if 'bm_url' in form:
+				if (bm_url := form['bm_url'].strip().rstrip('/')) and not valid_https_url(bm_url):
+					return redirect('/settings?bm=invalid')
+				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'bm_url', bm_url))
 			await db.commit()
 
 		return redirect('/settings')
@@ -2289,35 +2335,12 @@ async def settings():
 	providers = await tmdb_cached('providers:US', 'watch/providers/movie', 30 * 86400, {'watch_region': 'US'})
 	providers = sorted((providers or {}).get('results', []), key=lambda p: p.get('display_priorities', {}).get('US', 999))
 	subs      = dict(keys[0]) if keys else {'subdl_key': '', 'os_key': '', 'os_user': '', 'os_pass': ''}
-	page      = {'letterboxd_user': await user_setting('letterboxd_user'), 'providers': providers, 'selected': set(await my_providers()), 'subs': subs, 'account': request.args.get('account')}
+	page      = {'letterboxd_user': await user_setting('letterboxd_user'), 'providers': providers, 'selected': set(await my_providers()), 'subs': subs, 'account': request.args.get('account'), 'bm_url': await user_setting('bm_url'), 'bm_error': request.args.get('bm') == 'invalid'}
 
-	if not g.user['admin']:
-		return await render_template('settings.html', **page)
+	if g.user['admin']:
+		subs['files'] = sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0
 
-	async with user_db() as db:
-		cached = await db.execute_fetchall('SELECT source, count(*) AS count FROM posters GROUP BY source')
-		tmdb_n = (await db.execute_fetchall("SELECT count(*) AS n FROM tmdb WHERE data IS NOT NULL AND (id LIKE 'tt%' OR id LIKE 'nm%')"))[0]['n']
-		users  = await db.execute_fetchall('''
-			SELECT u.id, u.name, u.admin, u.approved, u.created,
-				(SELECT count(*) FROM lists WHERE user_id = u.id) AS lists,
-				(SELECT count(*) FROM ratings WHERE user_id = u.id) AS ratings,
-				(SELECT count(*) FROM marks WHERE user_id = u.id) AS marks,
-				EXISTS (SELECT 1 FROM subtitle_keys k WHERE k.user_id = u.id AND (k.subdl_key != '' OR k.os_key != '')) AS sub_keys,
-				(SELECT max(expires) FROM sessions WHERE user_id = u.id) - ? AS last_login
-			FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
-		''', (SESSION_AGE,))
-
-	meta   = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
-	size   = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
-	images = state['images']
-
-	if time.time() - state['images_at'] >= 600:
-		state['images_at'] = time.time()
-		spawn(image_usage())
-
-	subs['files'] = sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0
-
-	return await render_template('settings.html', **page, users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'), tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=images, meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
+	return await render_template('settings.html', **page)
 
 
 @app.route('/title/tt<int:tconst>')
@@ -2477,7 +2500,7 @@ async def title_tmdb(tconst: int):
 
 	d = await tmdb_details(fmt_id('tt', tconst))
 
-	return await render_template('_tmdb_title.html', d=d, tconst=tconst, streams=await stream_links(tconst, d), torrents=bool(await setting('bm_url')))
+	return await render_template('_tmdb_title.html', d=d, tconst=tconst, streams=await stream_links(tconst, d), torrents=bool(g.user and await user_setting('bm_url') or await setting('bm_url')))
 
 
 @app.route('/title/tt<int:tconst>/torrents')

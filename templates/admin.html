@@ -1,0 +1,176 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- admin.html -->
+
+{% extends 'base.html' %}
+{% block title %}Admin{% endblock %}
+{% block content %}
+{% set inp = 'w-full rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent/60' %}
+{% set btn = 'shrink-0 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm font-medium' %}
+{% set primary = 'shrink-0 px-4 py-2 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold disabled:opacity-40' %}
+{% set card = 'rounded-2xl border border-zinc-800 bg-zinc-900/40 overflow-hidden' %}
+{% set head = 'flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-zinc-800' %}
+{% set row = 'grid grid-cols-[minmax(0,1fr)] sm:grid-cols-[10rem_minmax(0,1fr)] gap-2 sm:gap-6 px-5 py-4 border-b border-zinc-800/70 last:border-0' %}
+{% set label = 'text-sm font-medium text-zinc-300 sm:pt-2' %}
+<div class="max-w-4xl mx-auto space-y-6">
+	<h1 class="text-2xl font-bold">Admin</h1>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">TMDB</h2><p class="text-xs text-zinc-500">Posters, headshots, plots, trailers and extra details</p></div>
+			<span class="text-xs px-2.5 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-400' if tmdb_key else 'bg-zinc-800 text-zinc-400' }}">{{ 'Connected' if tmdb_key else 'No key' }}</span>
+		</div>
+		<div class="{{ row }}">
+			<label class="{{ label }}" for="tmdb-key">API key</label>
+			<div>
+				<form action="/admin" method="post" class="flex gap-2" x-data="{show: false}">
+					<div class="relative flex-1">
+						<input id="tmdb-key" name="tmdb_key" value="{{ tmdb_key }}" :type="show ? 'text' : 'password'" type="password" autocomplete="off" placeholder="v3 API key or v4 read access token" class="{{ inp }} pr-14 font-mono">
+						<button type="button" @click="show = !show" class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-zinc-500 hover:text-zinc-300" x-text="show ? 'Hide' : 'Show'">Show</button>
+					</div>
+					<button class="{{ btn }}">Save</button>
+				</form>
+				<p class="mt-2 text-xs text-zinc-500">Without a key, title posters fall back to Letterboxd (films only) and people get no headshots.</p>
+			</div>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Cache</div>
+			<div class="flex flex-wrap items-center gap-2">
+				<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">Details</span> <span class="tabular-nums">{{ '{:,}'.format(tmdb_n) }}</span></span>
+				{% for c in cached %}<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">{{ {'tmdb': 'TMDB posters', 'letterboxd': 'Letterboxd posters'}.get(c.source, 'No poster') }}</span> <span class="tabular-nums">{{ '{:,}'.format(c.count) }}</span></span>{% endfor %}
+				<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">Images on disk</span> <span class="tabular-nums">{% if images is none %}…{% else %}{{ '%.1f' | format(images / 1e9) if images >= 1e9 else '%.0f' | format(images / 1e6) }} {{ 'GB' if images >= 1e9 else 'MB' }}{% endif %}</span></span>
+				<form action="/admin" method="post" class="ml-auto" x-data="{confirm: false}">
+					<input type="hidden" name="clear_posters" value="1">
+					<button type="button" x-show="!confirm" @click="confirm = true" class="{{ btn }}">Clear cache</button>
+					<span x-show="confirm" x-cloak class="flex gap-1"><button class="shrink-0 px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white text-sm font-medium">Confirm</button><button type="button" @click="confirm = false" class="{{ btn }}">Cancel</button></span>
+				</form>
+			</div>
+		</div>
+	</section>
+
+	{% set sbtn = 'shrink-0 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium' %}
+	{% set pending = users | rejectattr('approved') | list %}
+	<section class="{{ card }}">
+		<div class="px-5 py-4 border-b border-zinc-800"><h2 class="font-semibold">Registration</h2><p class="text-xs text-zinc-500">Close registration or require approval if bots start signing up</p></div>
+		<form action="/admin" method="post" class="px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+			<input type="hidden" name="action" value="registration">
+			<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="registration" value="1" {{ 'checked' if registration == 'open' }} class="accent-yellow-400"> Registration open</label>
+			<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="approval" value="1" {{ 'checked' if approval == '1' }} class="accent-yellow-400"> New accounts need approval</label>
+			<button class="ml-auto px-4 py-2 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold">Save</button>
+		</form>
+	</section>
+
+	<section id="accounts" class="{{ card }}">
+		<div class="px-5 py-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+			<div><h2 class="font-semibold">Accounts</h2><p class="text-xs text-zinc-500">{{ users | length }} total{% if pending %} · <span class="text-accent">{{ pending | length }} waiting for approval</span>{% endif %}</p></div>
+		</div>
+		<div class="overflow-x-auto">
+			<table class="w-full text-sm">
+				<thead class="text-xs text-zinc-500 text-left">
+					<tr class="border-b border-zinc-800"><th class="px-5 py-2 font-medium">Username</th><th class="px-3 py-2 font-medium">Status</th><th class="px-3 py-2 font-medium">Created</th><th class="px-3 py-2 font-medium">Last login</th><th class="px-3 py-2 font-medium text-right">Lists</th><th class="px-3 py-2 font-medium text-right">Ratings</th><th class="px-3 py-2 font-medium text-right">Marked</th><th class="px-3 py-2 font-medium">Sub keys</th><th class="px-5 py-2"></th></tr>
+				</thead>
+				<tbody class="divide-y divide-zinc-800/70">
+					{% for u in users %}
+					<tr x-data="{pw: false, del: false}" class="align-top">
+						<td class="px-5 py-2.5 font-medium">{{ u.name }}</td>
+						<td class="px-3 py-2.5">{% if u.admin %}<span class="px-2 py-0.5 rounded-full bg-accent/15 text-accent text-xs">Admin</span>{% elif u.approved %}<span class="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 text-xs">Active</span>{% else %}<span class="px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 text-xs">Pending</span>{% endif %}</td>
+						<td class="px-3 py-2.5 text-zinc-400 tabular-nums whitespace-nowrap">{{ u.created | int | datetime }}</td>
+						<td class="px-3 py-2.5 text-zinc-400 tabular-nums whitespace-nowrap">{{ u.last_login | int | datetime if u.last_login else 'Never' }}</td>
+						<td class="px-3 py-2.5 text-right tabular-nums">{{ '{:,}'.format(u.lists) }}</td>
+						<td class="px-3 py-2.5 text-right tabular-nums">{{ '{:,}'.format(u.ratings) }}</td>
+						<td class="px-3 py-2.5 text-right tabular-nums">{{ '{:,}'.format(u.marks) }}</td>
+						<td class="px-3 py-2.5 text-zinc-400">{{ 'Yes' if u.sub_keys else '' }}</td>
+						<td class="px-5 py-2.5">
+							{% if not u.admin %}
+							<div class="flex flex-wrap justify-end gap-1.5">
+								{% if not u.approved %}<form action="/admin" method="post"><input type="hidden" name="action" value="approve"><input type="hidden" name="user_id" value="{{ u.id }}"><button class="shrink-0 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium">Approve</button></form>{% endif %}
+								<button type="button" x-show="!pw && !del" @click="pw = true" class="{{ sbtn }}">Set password</button>
+								<button type="button" x-show="!pw && !del" @click="del = true" class="{{ sbtn }} hover:!bg-red-600">Delete</button>
+								<form x-show="pw" x-cloak action="/admin" method="post" class="flex gap-1.5">
+									<input type="hidden" name="action" value="password"><input type="hidden" name="user_id" value="{{ u.id }}">
+									<input name="password" type="password" required minlength="6" maxlength="100" autocomplete="new-password" placeholder="New password" class="w-40 rounded-lg bg-zinc-950 border border-zinc-800 px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent">
+									<button class="{{ sbtn }}">Save</button><button type="button" @click="pw = false" class="{{ sbtn }}">Cancel</button>
+								</form>
+								<form x-show="del" x-cloak action="/admin" method="post" class="flex items-center gap-1.5">
+									<input type="hidden" name="action" value="delete"><input type="hidden" name="user_id" value="{{ u.id }}">
+									<span class="text-xs text-zinc-400">Delete {{ u.name }} and all their data?</span>
+									<button class="shrink-0 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-xs font-medium">Delete</button><button type="button" @click="del = false" class="{{ sbtn }}">Cancel</button>
+								</form>
+							</div>
+							{% endif %}
+						</td>
+					</tr>
+					{% endfor %}
+				</tbody>
+			</table>
+		</div>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Torrents</h2><p class="text-xs text-zinc-500">Top torrents on each title page from a bitmagnet server (Torznab API)</p></div>
+			<span class="text-xs px-2.5 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-400' if bm.bm_url else 'bg-zinc-800 text-zinc-400' }}">{{ 'Enabled' if bm.bm_url else 'Off' }}</span>
+		</div>
+		<form action="/admin" method="post" x-data="{show: false}">
+			<div class="{{ row }}">
+				<label class="{{ label }}" for="bm-url">bitmagnet URL</label>
+				<div>
+					<input id="bm-url" name="bm_url" value="{{ bm.bm_url }}" placeholder="https://bitmagnet.example.com" autocomplete="off" class="{{ inp }}">
+					<p class="mt-2 text-xs text-zinc-500">Shared server for everyone without their own URL in Settings. Regular users on it don't get the "Search for more" link. Blank turns torrents off for them.</p>
+				</div>
+			</div>
+			<div class="{{ row }}">
+				<div class="{{ label }}">Login</div>
+				<div>
+					<div class="grid sm:grid-cols-2 gap-2">
+						<input name="bm_user" value="{{ bm.bm_user }}" placeholder="Username" autocomplete="off" class="{{ inp }}">
+						<input name="bm_pass" value="{{ bm.bm_pass }}" :type="show ? 'text' : 'password'" type="password" placeholder="Password" autocomplete="new-password" class="{{ inp }}">
+					</div>
+					<p class="mt-2 text-xs text-zinc-500">Optional, for servers behind HTTP basic auth.</p>
+					<div class="mt-3 flex gap-2"><button class="{{ btn }}">Save</button><button type="button" @click="show = !show" class="{{ btn }}" x-text="show ? 'Hide password' : 'Show password'">Show password</button></div>
+				</div>
+			</div>
+		</form>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">Offline</h2><p class="text-xs text-zinc-500">Everything is stored on this server, so the site keeps working at home when the internet is down</p></div>
+			<button hx-post="/precache" hx-target="#precache-status" hx-swap="outerHTML" class="{{ primary }}">Pre-cache now</button>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Pre-cache</div>
+			<div>
+				<div hx-get="/precache" hx-trigger="load" hx-swap="innerHTML"><div id="precache-status"></div></div>
+				<p class="mt-2 text-xs text-zinc-500">Downloads posters and full TMDB details for your library, the top 50,000 titles and the top 20,000 people so they work without internet. Runs weekly; already-fresh items are skipped.</p>
+			</div>
+		</div>
+	</section>
+
+	<section class="{{ card }}">
+		<div class="{{ head }}">
+			<div><h2 class="font-semibold">IMDb database</h2><p class="text-xs text-zinc-500">Local copy of the IMDb non-commercial datasets</p></div>
+			<button hx-post="/update" hx-target="#update-status" hx-swap="innerHTML" {{ 'disabled' if status.state == 'running' }} class="{{ primary }}">Check for updates</button>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Status</div>
+			<div id="update-status" hx-get="/update" hx-trigger="load">{% include '_status.html' %}</div>
+		</div>
+		<div class="{{ row }}">
+			<div class="{{ label }}">Database</div>
+			<div class="grid grid-cols-2 gap-3 text-sm">
+				<div class="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2"><div class="text-xs text-zinc-500">Built</div><div class="tabular-nums">{{ meta.built or 'Never' }}</div></div>
+				<div class="rounded-lg bg-zinc-950 border border-zinc-800 px-3 py-2"><div class="text-xs text-zinc-500">Size</div><div class="tabular-nums">{{ '%.1f GB' | format(size / 1e9) }}</div></div>
+			</div>
+		</div>
+		{% if meta.datasets %}
+		<div class="{{ row }}">
+			<div class="{{ label }}">Dataset versions</div>
+			<div class="rounded-lg border border-zinc-800 divide-y divide-zinc-800/70 text-sm">
+				{% for k, v in json.loads(meta.datasets).items() %}<div class="flex justify-between gap-4 px-3 py-1.5"><span class="font-mono text-xs text-zinc-400 pt-0.5">{{ k }}</span><span class="text-zinc-300 tabular-nums text-xs pt-0.5">{{ v }}</span></div>{% endfor %}
+			</div>
+		</div>
+		{% endif %}
+		<p class="px-5 py-3 text-xs text-zinc-500">Rebuilds automatically once a week. Downloads only changed datasets, builds a new database alongside the live one, then swaps it in atomically. The site stays usable during the ~30 minute build.</p>
+	</section>
+</div>
+{% endblock %}

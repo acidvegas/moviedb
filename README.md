@@ -16,7 +16,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 - Filter by the streaming services you subscribe to
 - English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for every library *(users can add their own API keys to a shared pool)*
 - Links to 28 third-party streaming sites on every title page *(direct links where the site uses TMDB/IMDb ids, otherwise a search)*
-- Top torrents by seeders from a [bitmagnet](https://bitmagnet.io/) instance, with magnet copy and a link to search for more *(optional)*
+- Top torrents by seeders from a [bitmagnet](https://bitmagnet.io/) instance, with magnet copy and a link to search for more *(optional; users can set their own bitmagnet URL or fall back to the admin's shared one, without the search link)*
 - Offline: posters, details and all assets are stored locally and pre-cached for the most popular titles
 - Weekly automatic IMDb rebuilds, swapped in atomically while the site stays up
 - Infinite scroll, keyboard shortcuts *(press `?`)* and a mobile-friendly layout
@@ -38,7 +38,7 @@ A self-hosted movie and TV browser built on the full IMDb datasets. Everything l
 
 This creates a venv, installs the dependencies, writes `.env`, and installs and starts a `moviedb` systemd service. The IMDb database builds on first start, which takes about 30 minutes.
 
-Set `ADMIN_PASSWORD` in `.env`, restart the service, then open `http://<server-ip>:5000`, log in as `admin`, go to **Settings**, and add your TMDB key, Letterboxd username and streaming services.
+Set `ADMIN_PASSWORD` in `.env`, restart the service, then open `http://<server-ip>:5000`, log in as `admin`, add your TMDB key under **Admin**, then your Letterboxd username and streaming services under **Settings**.
 
 ## Running manually
 
@@ -60,7 +60,7 @@ Set in `.env` *(see `.env.example`)*:
 | `PORT`           | `5000`    | Port to listen on                                          |
 | `ADMIN_PASSWORD` |           | Password of the `admin` account *(applied on every start)* |
 
-Everything else is set in the web interface under **Settings** *(site settings are admin only)*.
+Everything else is set in the web interface: per-account options under **Settings**, site settings and accounts under **Admin** *(admin only)*.
 
 ## Files
 
