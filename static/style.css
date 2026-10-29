@@ -8,4 +8,3 @@
 .toast { left: 50%; transform: translateX(-50%); }
 [data-nav].nav-active { outline: 2px solid #f5c518; outline-offset: 3px; border-radius: .6rem; }
 [hidden] { display: none !important; }
-.hide-noimg .no-img { display: none; }
