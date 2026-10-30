@@ -45,15 +45,13 @@
 </div>
 
 <div id="watch" hx-swap-oob="true" class="max-w-3xl">
-	{% if d.providers is defined or streams %}
-	{% set mine_here = (d.providers or []) | selectattr('id', 'in', mine.providers) | list %}
-	<div class="mt-5 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+	{% if d.providers is defined %}
+	{% set mine_here = d.providers | selectattr('id', 'in', mine.providers) | list %}
+	<div class="mt-5">
 		<div class="flex items-center justify-between gap-2 mb-2">
-			<h3 class="text-sm font-semibold">Where to stream</h3>
-			{% if mine.providers and d.providers is defined %}<span class="text-xs {{ 'text-emerald-400' if mine_here else 'text-zinc-500' }}">{{ 'On ' ~ (mine_here | map(attribute='name') | join(', ')) if mine_here else 'Not on your services' }}</span>{% endif %}
+			<h3 class="text-sm font-semibold">Where to stream <span class="text-xs font-normal text-zinc-500">US</span></h3>
+			{% if mine.providers %}<span class="text-xs {{ 'text-emerald-400' if mine_here else 'text-zinc-500' }}">{{ 'On ' ~ (mine_here | map(attribute='name') | join(', ')) if mine_here else 'Not on your services' }}</span>{% endif %}
 		</div>
-		{% if d.providers is defined %}
-		<h4 class="mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">Official <span class="font-normal normal-case tracking-normal">· US</span></h4>
 		{% if d.providers %}
 		<div class="flex flex-wrap gap-2">
 			{% for p in d.providers %}
@@ -65,13 +63,15 @@
 		</div>
 		{% else %}<p class="text-xs text-zinc-500">Not available to stream in the US right now.</p>{% endif %}
 		{% if user and not mine.providers %}<p class="mt-2 text-xs text-zinc-500">Pick your services in <a href="/settings" hx-boost="false" class="text-accent">Settings</a> to highlight them.</p>{% endif %}
-		{% endif %}
-		{% if streams %}
-		<h4 class="{{ 'mt-4 ' if d.providers is defined }}mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">3rd-party</h4>
+	</div>
+	{% endif %}
+
+	{% if streams %}
+	<div class="mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+		<h3 class="mb-2 text-sm font-semibold">3rd-party streaming</h3>
 		<div class="flex flex-wrap gap-1.5">
 			{% for s in streams %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs">{{ s.site }}{{ ' 🔍' if not s.direct }} <span class="text-zinc-500">↗</span></a>{% endfor %}
 		</div>
-		{% endif %}
 	</div>
 	{% endif %}
 
