@@ -16,20 +16,20 @@
 		<div class="mt-2 text-sm text-zinc-500">{{ '{:,}'.format(person.credits) }} credits</div>
 		{% if user %}<div class="mt-3 flex flex-wrap items-center gap-3">{% with nconst = person.nconst %}{% include '_follow.html' %}{% endwith %}{% with kind = 'nm', item_id = person.nconst %}{% include '_stars.html' %}{% endwith %}</div>{% endif %}
 		<div hx-get="/name/{{ nid }}/tmdb" hx-trigger="load" hx-swap="outerHTML"></div>
-		<div class="mt-4 flex gap-2"><a href="https://www.imdb.com/name/{{ nid }}/" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm">IMDb ↗</a></div>
+		<div class="mt-4 flex gap-2"><a href="https://www.imdb.com/name/{{ nid }}/" target="_blank" rel="noopener" title="IMDb" class="block hover:opacity-80"><svg class="h-8" viewBox="0 0 64 32"><rect width="64" height="32" rx="5" fill="#F5C518"/><text x="32" y="23" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="900" fill="#000">IMDb</text></svg></a></div>
 	</div>
 </div>
 {% if known %}<section class="mt-10"><h2 class="text-lg font-semibold mb-3">Known for</h2>{{ grid(known) }}</section>{% endif %}
-<section class="mt-10" x-data="{tab: '{{ groups[0][0] if groups else '' }}', q: ''}">
+<section class="mt-10" x-data="{tab: '{{ groups[0][0] if groups else '' }}', q: '', page: 1}">
 	<div class="flex flex-wrap items-center gap-1.5 mb-3">
 		<h2 class="text-lg font-semibold mr-3">Filmography</h2>
-		{% for cat, rows in groups %}<button @click="tab = '{{ cat }}'" :class="tab == '{{ cat }}' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">{{ cat.replace('_', ' ') | capitalize }} <span class="opacity-60">{{ rows | length }}</span></button>{% endfor %}
-		<input x-model="q" placeholder="Filter…" class="ml-auto rounded-md bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
+		{% for cat, rows in groups %}<button @click="tab = '{{ cat }}'; page = 1" :class="tab == '{{ cat }}' ? 'bg-accent text-black' : 'bg-zinc-900 hover:bg-zinc-800'" class="px-3 py-1 rounded-md text-sm">{{ cat.replace('_', ' ') | capitalize }} <span class="opacity-60">{{ rows | length }}</span></button>{% endfor %}
+		<input x-model="q" @input="page = 1" placeholder="Filter…" class="ml-auto rounded-md bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
 	</div>
 	{% for cat, rows in groups %}
 	<div x-show="tab == '{{ cat }}'" class="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800">
 		{% for t in rows %}
-		<a href="/title/{{ fmt_id('tt', t.tconst) }}" data-nav x-show="!q || $el.dataset.t.includes(q.toLowerCase())" data-t="{{ t.primary_title | lower }}" class="flex items-center gap-4 px-4 py-2.5 hover:bg-zinc-900">
+		<a href="/title/{{ fmt_id('tt', t.tconst) }}" data-nav x-show="q ? $el.dataset.t.includes(q.toLowerCase()) : {{ loop.index }} > (page - 1) * 50 && {{ loop.index }} <= page * 50" data-t="{{ t.primary_title | lower }}" class="flex items-center gap-4 px-4 py-2.5 hover:bg-zinc-900">
 			<span class="w-12 text-xs text-zinc-500 tabular-nums">{{ t.start_year or '—' }}</span>
 			<span class="flex-1 min-w-0"><span class="block text-sm truncate">{{ t.primary_title }}</span>
 				<span class="block text-xs text-zinc-500 truncate">{{ type_label(t.type) }}{% if t.characters %} · {{ json.loads(t.characters) | join(' / ') }}{% elif t.job %} · {{ t.job }}{% endif %}</span></span>
@@ -39,6 +39,14 @@
 		</a>
 		{% endfor %}
 	</div>
+	{% if rows | length > 50 %}
+	{% set pages = (rows | length / 50) | round(0, 'ceil') | int %}
+	<div x-show="tab == '{{ cat }}' && !q" class="mt-3 flex items-center justify-center gap-2 text-sm">
+		<button @click="page = Math.max(1, page - 1)" :disabled="page == 1" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:pointer-events-none">← Prev</button>
+		<span class="px-2 text-zinc-400 tabular-nums">Page <span x-text="page">1</span> of {{ pages }}</span>
+		<button @click="page = Math.min({{ pages }}, page + 1)" :disabled="page == {{ pages }}" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 disabled:opacity-40 disabled:pointer-events-none">Next →</button>
+	</div>
+	{% endif %}
 	{% endfor %}
 </section>
 {% endblock %}
