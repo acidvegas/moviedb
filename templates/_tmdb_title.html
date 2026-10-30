@@ -67,7 +67,7 @@
 		{% if user and not mine.providers %}<p class="mt-2 text-xs text-zinc-500">Pick your services in <a href="/settings" hx-boost="false" class="text-accent">Settings</a> to highlight them.</p>{% endif %}
 		{% endif %}
 		{% if streams %}
-		<h4 class="{{ 'mt-4 ' if d.providers is defined }}mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">3rd-party <span class="font-normal normal-case tracking-normal">· 🔍 = opens a search</span></h4>
+		<h4 class="{{ 'mt-4 ' if d.providers is defined }}mb-1.5 text-xs font-semibold uppercase tracking-wider text-zinc-500">3rd-party</h4>
 		<div class="flex flex-wrap gap-1.5">
 			{% for s in streams %}<a href="{{ s.url }}" target="_blank" rel="noopener noreferrer" class="px-2.5 py-1 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs">{{ s.site }}{{ ' 🔍' if not s.direct }} <span class="text-zinc-500">↗</span></a>{% endfor %}
 		</div>
