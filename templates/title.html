@@ -2,7 +2,7 @@
 {% from '_macros.html' import years, rating, type_label, poster, votes with context %}
 {% set tid = fmt_id('tt', t.tconst) %}
 {% block title %}{{ t.primary_title }}{% if t.start_year %} ({{ t.start_year }}){% endif %}{% endblock %}
-{% block description %}{{ type_label(t.type) }}{% if t.start_year %} · {{ years(t) }}{% endif %}{% if t.genres %} · {{ t.genres.replace(',', ', ') }}{% endif %}{% if t.rating %} · ★ {{ t.rating }} ({{ '{:,}'.format(t.votes) }} votes){% endif %}{% set ds = crew | selectattr('role', 'equalto', 'director') | map(attribute='name') | list %}{% if ds %} · Directed by {{ ds[:3] | join(', ') }}{% endif %}{% endblock %}
+{% block description %}{% if overview %}{{ overview | truncate(300) }}{% else %}{{ type_label(t.type) }}{% if t.start_year %} · {{ years(t) }}{% endif %}{% if t.genres %} · {{ t.genres.replace(',', ', ') }}{% endif %}{% if t.rating %} · ★ {{ t.rating }} ({{ '{:,}'.format(t.votes) }} votes){% endif %}{% set ds = crew | selectattr('role', 'equalto', 'director') | map(attribute='name') | list %}{% if ds %} · Directed by {{ ds[:3] | join(', ') }}{% endif %}{% endif %}{% endblock %}
 {% block og_image %}{{ request.url_root }}poster/{{ tid }}{% endblock %}
 {% block twitter_card %}summary{% endblock %}
 {% block content %}

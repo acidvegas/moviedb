@@ -32,6 +32,7 @@ try:
 	import aiosqlite
 	from hypercorn.asyncio import serve
 	from hypercorn.config  import Config
+	from hypercorn.middleware import ProxyFixMiddleware
 	from quart             import Quart, abort, g, redirect, render_template, request, Response, send_file
 except ImportError:
 	raise ImportError('missing dependencies (pip install -r requirements.txt)')
@@ -50,6 +51,7 @@ TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'new
 MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE user_id = {uid} AND kind = 'tt')"}
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
+SCHEMA_TYPES = {'movie': 'Movie', 'tvMovie': 'Movie', 'short': 'Movie', 'video': 'Movie', 'tvSeries': 'TVSeries', 'tvMiniSeries': 'TVSeries', 'tvEpisode': 'TVEpisode'}
 NAME_SORTS   = {'score': 'score DESC', 'credits': 'credits DESC', 'name': 'name COLLATE NOCASE', 'born': 'birth_year DESC'}
 TMDB_TTL     = {'tv': 86400, 'movie': 30 * 86400, 'episode': 30 * 86400, 'person': 30 * 86400}
 TMDB_RATE    = 35
@@ -2116,7 +2118,18 @@ async def name(nconst: int):
 	known = [int(t[2:]) for t in (person['known_for'] or '').split(',') if t]
 	known = await titles_by_ids(known)
 
-	return await render_template('name.html', person=person, groups=sorted(groups.items(), key=lambda g: -len(g[1])), known=list(known.values()))
+	ld = {
+		'@context' : 'https://schema.org',
+		'@type'    : 'Person',
+		'name'     : person['name'],
+		'url'      : f'{request.url_root}name/{fmt_id("nm", nconst)}',
+		'image'    : f'{request.url_root}poster/{fmt_id("nm", nconst)}',
+		'birthDate': str(person['birth_year']) if person['birth_year'] else None,
+		'deathDate': str(person['death_year']) if person['death_year'] else None,
+		'jobTitle' : [p.replace('_', ' ') for p in person['professions'].split(',')] if person['professions'] else None
+	}
+
+	return await render_template('name.html', person=person, groups=sorted(groups.items(), key=lambda g: -len(g[1])), known=list(known.values()), ld={k: v for k, v in ld.items() if v is not None})
 
 
 @app.route('/name/nm<int:nconst>/follow', methods=['POST'])
@@ -2305,6 +2318,45 @@ async def register():
 	return await render_template('register.html', closed=closed, error=error, name=name, done=done, captcha=None if closed or done else captcha_new())
 
 
+@app.route('/robots.txt')
+async def robots():
+	'''Crawler rules: index title and people pages, skip account pages, partials and filter combinations.'''
+
+	paths = ('/account', '/admin', '/captcha/', '/go/', '/letterboxd/', '/library', '/list/', '/lists', '/login', '/logout', '/precache', '/rate/', '/recommend', '/register', '/search', '/settings', '/upcoming', '/update', '/title/*/', '/name/*/', '/*?')
+	lines = ['User-agent: *', *(f'Disallow: {p}' for p in paths), 'Allow: /', '', f'Sitemap: {request.url_root}sitemap.xml']
+
+	return Response('\n'.join(lines) + '\n', mimetype='text/plain')
+
+
+@app.route('/sitemap.xml')
+async def sitemap_index():
+	'''Sitemap index pointing at the title and people sitemaps.'''
+
+	items = ''.join(f'<sitemap><loc>{request.url_root}sitemap/{kind}.xml</loc></sitemap>' for kind in ('titles', 'names'))
+
+	return Response(f'<?xml version="1.0" encoding="UTF-8"?><sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{items}</sitemapindex>', mimetype='application/xml')
+
+
+@app.route('/sitemap/<kind>.xml')
+async def sitemap(kind: str):
+	'''
+	Sitemap of the most popular titles or people (the 50,000 URL limit of one sitemap).
+
+	:param kind: titles or names
+	'''
+
+	if kind == 'titles':
+		urls = [f'title/{fmt_id("tt", r["tconst"])}' for r in await query("SELECT tconst FROM titles WHERE type != 'tvEpisode' ORDER BY votes DESC LIMIT 50000")]
+	elif kind == 'names':
+		urls = [f'name/{fmt_id("nm", r["nconst"])}' for r in await query('SELECT nconst FROM names ORDER BY score DESC LIMIT 50000')]
+	else:
+		abort(404)
+
+	items = ''.join(f'<url><loc>{request.url_root}{u}</loc></url>' for u in urls)
+
+	return Response(f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{items}</urlset>', mimetype='application/xml')
+
+
 @app.route('/search')
 async def search():
 	'''Global search across titles and people; returns a dropdown partial for htmx requests.'''
@@ -2394,7 +2446,25 @@ async def title(tconst: int):
 		for ep in await query('SELECT e.season, e.episode, t.* FROM episodes e JOIN titles t ON t.tconst = e.tconst WHERE e.parent = ? ORDER BY e.season IS NULL, e.season, e.episode', (tconst,)):
 			seasons.setdefault(ep['season'], []).append(ep)
 
-	return await render_template('title.html', t=rows[0], cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst) if g.user else '')
+	t        = rows[0]
+	overview = (await tmdb_details(fmt_id('tt', tconst), cached_only=True) or {}).get('overview')
+	people   = lambda rows: [{'@type': 'Person', 'name': r['name'], 'url': f'{request.url_root}name/{fmt_id("nm", r["nconst"])}'} for r in rows]
+	ld       = {
+		'@context'       : 'https://schema.org',
+		'@type'          : SCHEMA_TYPES.get(t['type'], 'CreativeWork'),
+		'name'           : t['primary_title'],
+		'url'            : f'{request.url_root}title/{fmt_id("tt", tconst)}',
+		'image'          : f'{request.url_root}poster/{fmt_id("tt", tconst)}',
+		'description'    : overview,
+		'datePublished'  : str(t['start_year']) if t['start_year'] else None,
+		'duration'       : f'PT{t["runtime"]}M' if t['runtime'] else None,
+		'genre'          : t['genres'].split(',') if t['genres'] else None,
+		'aggregateRating': {'@type': 'AggregateRating', 'ratingValue': t['rating'], 'ratingCount': t['votes'], 'bestRating': 10, 'worstRating': 1} if t['rating'] and t['votes'] else None,
+		'director'       : people([c for c in crew if c['role'] == 'director'][:5]) or None,
+		'actor'          : people([c for c in cast if c['category'] in ('actor', 'actress', 'self')][:10]) or None
+	}
+
+	return await render_template('title.html', t=t, cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst) if g.user else '', overview=overview, ld={k: v for k, v in ld.items() if v is not None})
 
 
 @app.route('/title/tt<int:tconst>/mark', methods=['POST'])
@@ -2685,4 +2755,4 @@ if __name__ == '__main__':
 	config      = Config()
 	config.bind = [f'{os.environ.get("HOST", "0.0.0.0")}:{os.environ.get("PORT", "5000")}']
 
-	asyncio.run(serve(app, config))
+	asyncio.run(serve(ProxyFixMiddleware(app, mode='legacy', trusted_hops=1), config))

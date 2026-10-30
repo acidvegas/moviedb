@@ -17,9 +17,11 @@
 	<meta property="og:site_name" content="MovieDB">
 	<meta property="og:title" content="{{ self.title() }}">
 	<meta property="og:description" content="{{ self.description() }}">
-	<meta property="og:url" content="{{ request.url }}">
+	<link rel="canonical" href="{{ request.url_root }}{{ request.path[1:] }}">
+	<meta property="og:url" content="{{ request.url_root }}{{ request.path[1:] }}">
 	<meta property="og:image" content="{% block og_image %}{{ request.url_root }}static/icons/og.png{% endblock %}">
 	<meta name="twitter:card" content="{% block twitter_card %}summary_large_image{% endblock %}">
+	{% if ld %}<script type="application/ld+json">{{ ld | tojson }}</script>{% endif %}
 	<script src="/static/vendor/tailwind.js"></script>
 	<script>tailwind.config = {darkMode: 'class', theme: {extend: {fontFamily: {sans: ['Inter', 'system-ui', 'sans-serif']}, colors: {accent: {DEFAULT: '#f5c518', dim: '#b8940f'}}}}}</script>
 	<link rel="stylesheet" href="/static/vendor/fonts/inter.css">
