@@ -7,11 +7,6 @@ function toast(message) {
 	el._timer = setTimeout(() => el.hidden = true, 3500);
 }
 
-// Remember an on/off UI preference for a year (read server-side by pref())
-function remember(name, on) {
-	document.cookie = `${name}=${on ? 1 : 0}; path=/; max-age=31536000; samesite=lax`;
-}
-
 // Copy text to the clipboard (execCommand, since navigator.clipboard needs HTTPS)
 function copyText(text, message) {
 	const el = document.createElement('textarea');
