@@ -6,6 +6,7 @@
 <form action="/search" class="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2">
 	<input type="hidden" name="q" value="{{ q }}">
 	<div class="flex gap-1.5">{% for k, lbl in (('all', 'All'), ('movies', 'Movies'), ('tv', 'TV'), ('people', 'People')) %}<label class="cursor-pointer"><input type="radio" name="kind" value="{{ k }}" {{ 'checked' if kind == k }} onchange="this.form.requestSubmit()" class="sr-only peer"><span class="block px-3 py-1 rounded-md text-sm bg-zinc-900 hover:bg-zinc-800 peer-checked:bg-accent peer-checked:text-black">{{ lbl }}</span></label>{% endfor %}</div>
+	<input type="hidden" name="noimg" value="0">
 	<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="noimg" value="1" {{ 'checked' if noimg }} onchange="this.form.requestSubmit()" class="accent-yellow-400"> Hide results without an image</label>
 </form>
 {% if people %}

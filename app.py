@@ -2147,10 +2147,15 @@ async def names():
 		where.append("(',' || professions || ',') LIKE ?")
 		params.append(f'%,{profession},%')
 
-	sql  = f'SELECT * FROM names {"WHERE " + " AND ".join(where) if where else ""} ORDER BY {NAME_SORTS.get(sort, NAME_SORTS["score"])} LIMIT ? OFFSET ?'
-	rows = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
+	sql    = f'SELECT * FROM names {"WHERE " + " AND ".join(where) if where else ""} ORDER BY {NAME_SORTS.get(sort, NAME_SORTS["score"])} LIMIT ? OFFSET ?'
+	rows   = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
+	people = rows[:PAGE_SIZE]
 
-	return await render_template('names.html', people=rows[:PAGE_SIZE], has_next=len(rows) > PAGE_SIZE, page=page, q=q, profession=profession, sort=sort, sorts=NAME_SORTS)
+	if noimg := request.args.getlist('noimg')[-1:] != ['0']:
+		found  = await asyncio.gather(*(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
+		people = [p for p, path in zip(people, found) if path]
+
+	return await render_template('names.html', people=people, has_next=len(rows) > PAGE_SIZE, page=page, q=q, profession=profession, sort=sort, sorts=NAME_SORTS, noimg=noimg)
 
 
 @app.route('/poster/<imdb_id>')
@@ -2288,7 +2293,7 @@ async def search():
 	fts   = fts_query(q)
 	full  = 'HX-Request' not in request.headers or request.headers.get('HX-Boosted')
 	kind  = request.args.get('kind', 'all') if full else 'all'
-	noimg = full and request.args.get('noimg') == '1'
+	noimg = full and request.args.getlist('noimg')[-1:] != ['0']
 
 	if not fts:
 		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[], kind=kind, noimg=noimg)
