@@ -754,15 +754,18 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 
 	if weights:
 		shared = await query(f'''
-			SELECT c.tconst, c.nconst FROM crew c JOIN titles t ON t.tconst = c.tconst WHERE c.role = 'director' AND c.nconst IN ({",".join("?" * len(weights))}) AND t.type IN ({",".join("?" * len(REC_TYPES))}) AND t.votes >= 2000
+			SELECT c.tconst, c.nconst FROM crew c JOIN titles t INDEXED BY idx_titles_filter ON t.tconst = c.tconst WHERE c.role = 'director' AND c.nconst IN ({",".join("?" * len(weights))}) AND t.type IN ({",".join("?" * len(REC_TYPES))}) AND t.votes >= 2000
 			UNION ALL
-			SELECT p.tconst, p.nconst FROM principals p JOIN titles t ON t.tconst = p.tconst WHERE p.ordering <= 4 AND p.nconst IN ({",".join("?" * len(weights))}) AND t.type IN ({",".join("?" * len(REC_TYPES))}) AND t.votes >= 2000
+			SELECT p.tconst, p.nconst FROM principals p JOIN titles t INDEXED BY idx_titles_filter ON t.tconst = p.tconst WHERE p.ordering <= 4 AND p.nconst IN ({",".join("?" * len(weights))}) AND t.type IN ({",".join("?" * len(REC_TYPES))}) AND t.votes >= 2000
 		''', [*weights, *REC_TYPES] * 2)
 		for row in shared:
 			add(row['tconst'], weights[row['nconst']] * 0.35, origin[row['nconst']])
 
-	async with user_db() as db:
-		watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
+	watched = set()
+
+	if g.user:
+		async with user_db() as db:
+			watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
 
 	candidates = [t for t in scores if t not in seeds and t not in watched]
 	titles     = await titles_by_ids(candidates)
@@ -1275,6 +1278,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'budget'        : d.get('budget'),
 			'revenue'       : d.get('revenue'),
 			'collection'    : (d.get('belongs_to_collection') or {}).get('name'),
+			'collection_id' : (d.get('belongs_to_collection') or {}).get('id'),
 			'keywords'      : [k['name'] for k in d.get('keywords', {}).get('keywords', [])],
 			'cast'          : [{'id': c['id'], 'name': c['name'], 'character': c.get('character'), 'profile': c.get('profile_path')} for c in credits.get('cast', [])[:300]],
 			'crew'          : [{'id': c['id'], 'name': c['name'], 'job': c.get('job'), 'department': c.get('department'), 'profile': c.get('profile_path')} for c in credits.get('crew', [])[:300]]
@@ -2501,6 +2505,34 @@ async def title_tmdb(tconst: int):
 	d = await tmdb_details(fmt_id('tt', tconst))
 
 	return await render_template('_tmdb_title.html', d=d, tconst=tconst, streams=await stream_links(tconst, d), torrents=bool(g.user and await user_setting('bm_url') or await setting('bm_url')))
+
+
+@app.route('/title/tt<int:tconst>/related')
+async def title_related(tconst: int):
+	'''
+	Render the bottom-of-page partial with the other titles in the same TMDB collection and similar titles.
+
+	:param tconst: Numeric title id
+	'''
+
+	d      = await tmdb_details(fmt_id('tt', tconst)) or {}
+	series = []
+
+	if not (cid := d.get('collection_id')) and d.get('collection'):
+		found = await tmdb_cached(f'collection-search:{d["collection"]}', 'search/collection', 30 * 86400, {'query': d['collection']})
+		cid   = next((c['id'] for c in (found or {}).get('results', []) if c['name'] == d['collection']), None)
+
+	if cid and (coll := await tmdb_cached(f'collection:{cid}', f'collection/{cid}', 30 * 86400)):
+		for part in sorted(coll.get('parts', []), key=lambda p: p.get('release_date') or '9999'):
+			year = (part.get('release_date') or '')[:4]
+			if (match := await match_title(part.get('title', ''), int(year) if year.isdigit() else None, ('movie', 'tvMovie', 'video'))) and match not in series:
+				series.append(match)
+
+	rows    = await titles_by_ids(series)
+	series  = [rows[t] for t in series if t in rows]
+	similar = [r['t'] for r in await recommend_titles({tconst: 1}, 30) if r['t']['tconst'] not in rows][:18]
+
+	return await render_template('_related.html', series=series if len(series) > 1 else [], similar=similar, tconst=tconst, collection=d.get('collection'))
 
 
 @app.route('/title/tt<int:tconst>/torrents')

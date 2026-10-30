@@ -37,12 +37,13 @@ CREATE INDEX idx_titles_votes      ON titles (votes DESC);
 CREATE INDEX idx_titles_type_votes ON titles (type, votes DESC);
 CREATE INDEX idx_titles_rating     ON titles (rating DESC);
 CREATE INDEX idx_titles_year       ON titles (start_year);
+CREATE INDEX idx_titles_filter     ON titles (tconst, type, votes);
 CREATE INDEX idx_episodes_parent   ON episodes (parent, season, episode);
 CREATE INDEX idx_akas_tconst       ON akas (tconst);
 CREATE INDEX idx_crew_tconst       ON crew (tconst);
 CREATE INDEX idx_crew_nconst       ON crew (nconst);
 CREATE INDEX idx_principals_tconst ON principals (tconst, ordering);
-CREATE INDEX idx_principals_nconst ON principals (nconst);
+CREATE INDEX idx_principals_nconst ON principals (nconst, ordering, tconst);
 CREATE INDEX idx_names_score       ON names (score DESC);
 '''
 
