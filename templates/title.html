@@ -5,6 +5,7 @@
 {% block description %}{% if overview %}{{ overview | truncate(300) }}{% else %}{{ type_label(t.type) }}{% if t.start_year %} · {{ years(t) }}{% endif %}{% if t.genres %} · {{ t.genres.replace(',', ', ') }}{% endif %}{% if t.rating %} · ★ {{ t.rating }} ({{ '{:,}'.format(t.votes) }} votes){% endif %}{% set ds = crew | selectattr('role', 'equalto', 'director') | map(attribute='name') | list %}{% if ds %} · Directed by {{ ds[:3] | join(', ') }}{% endif %}{% endif %}{% endblock %}
 {% block og_image %}{{ request.url_root }}poster/{{ tid }}{% endblock %}
 {% block twitter_card %}summary{% endblock %}
+{% block og_type %}{{ 'video.tv_show' if t.type in ('tvSeries', 'tvMiniSeries') else 'video.episode' if t.type == 'tvEpisode' else 'video.movie' }}{% endblock %}
 {% block content %}
 <div id="backdrop"></div>
 <div class="relative">
