@@ -2362,7 +2362,6 @@ async def title(tconst: int):
 
 	cast    = await query('SELECT p.*, n.name FROM principals p JOIN names n ON n.nconst = p.nconst WHERE p.tconst = ? ORDER BY p.ordering', (tconst,))
 	crew    = await query('SELECT c.role, n.nconst, n.name FROM crew c JOIN names n ON n.nconst = c.nconst WHERE c.tconst = ?', (tconst,))
-	akas    = await query('SELECT DISTINCT title, region FROM akas WHERE tconst = ? AND title != ?', (tconst, rows[0]['primary_title']))
 	parent  = await query('SELECT e.season, e.episode, t.* FROM episodes e JOIN titles t ON t.tconst = e.parent WHERE e.tconst = ?', (tconst,))
 	seasons = {}
 
@@ -2370,7 +2369,7 @@ async def title(tconst: int):
 		for ep in await query('SELECT e.season, e.episode, t.* FROM episodes e JOIN titles t ON t.tconst = e.tconst WHERE e.parent = ? ORDER BY e.season IS NULL, e.season, e.episode', (tconst,)):
 			seasons.setdefault(ep['season'], []).append(ep)
 
-	return await render_template('title.html', t=rows[0], cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, akas=akas, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst) if g.user else '')
+	return await render_template('title.html', t=rows[0], cast=[c for c in cast if c['category'] not in ('director', 'writer')], crew=crew, parent=parent[0] if parent else None, seasons=seasons, lists_html=await title_lists(tconst) if g.user else '')
 
 
 @app.route('/title/tt<int:tconst>/mark', methods=['POST'])

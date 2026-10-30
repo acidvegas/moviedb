@@ -30,8 +30,6 @@
 	<div class="mt-4 flex flex-wrap gap-2 text-sm">
 		{% if d.trailer %}<button @click="trailer = true" data-key="trailer" class="px-3 py-1.5 rounded-lg bg-accent text-black font-semibold">▶ Trailer</button>{% endif %}
 		{% if d.homepage %}<a href="{{ d.homepage }}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">Website ↗</a>{% endif %}
-		<a href="{{ d.url }}" target="_blank" rel="noopener" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">TMDB ↗</a>
-		<a href="/recommend?source=title:{{ tconst }}" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">More like this</a>
 	</div>
 	{% if d.trailer %}
 	<template x-if="trailer">
