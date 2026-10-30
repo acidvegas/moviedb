@@ -143,3 +143,27 @@ document.addEventListener('keydown', e => {
 	else if (digit === 0) clickIn('[data-key="clear-rating"]');
 	else if (digit >= 1 && digit <= 5) clickIn(`[data-key="rate-${digit * 2 - (e.shiftKey ? 1 : 0)}"]`);
 });
+
+// Full-screen loading overlay on a fresh page load: lifts once the page and its first htmx partials (TMDB details) are in, never waiting on slow extras, and at most 6s
+const pageload = {pending: 0, loaded: false, over: false};
+function pageloadDone(force) {
+	if (force || (pageload.loaded && !pageload.pending)) {
+		pageload.over = true;
+		document.getElementById('pageload')?.classList.add('done');
+	}
+}
+document.addEventListener('htmx:beforeRequest', e => {
+	if (!pageload.over && !e.detail.boosted && !/\/(torrents|subs|related)$/.test(e.detail.pathInfo.requestPath)) {
+		e.detail.xhr._pageload = true;
+		pageload.pending++;
+	}
+});
+document.addEventListener('htmx:afterRequest', e => {
+	if (e.detail.xhr._pageload) {
+		pageload.pending--;
+		setTimeout(pageloadDone);
+	}
+});
+document.addEventListener('htmx:afterSwap', () => { if (pageload.over) document.getElementById('pageload')?.classList.add('done'); });
+window.addEventListener('load', () => { pageload.loaded = true; setTimeout(pageloadDone); });
+setTimeout(() => pageloadDone(true), 6000);
