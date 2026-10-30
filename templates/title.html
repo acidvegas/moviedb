@@ -37,12 +37,12 @@
 	</div>
 </div>
 
-<section id="cast" class="{{ 'mt-10' if cast }}">
+<section id="cast" class="{{ 'mt-10 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3' if cast }}">
 {% if cast %}
 	<h2 class="text-lg font-semibold mb-3">Cast & crew</h2>
 	<div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-1">
 		{% for c in cast %}
-		<a href="/name/{{ fmt_id('nm', c.nconst) }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-900">
+		<a href="/name/{{ fmt_id('nm', c.nconst) }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800">
 			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0">{{ poster(fmt_id('nm', c.nconst), 'w-full h-full object-cover') }}</div>
 			<div class="min-w-0">
 				<div class="text-sm font-medium truncate group-hover:text-accent">{{ c.name }}</div>
