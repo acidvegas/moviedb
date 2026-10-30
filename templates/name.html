@@ -5,6 +5,7 @@
 {% block description %}{{ (person.professions or '').replace('_', ' ').replace(',', ', ') | capitalize }}{% if person.birth_year %} · Born {{ person.birth_year }}{% endif %}{% if known %} · Known for {{ known[:3] | map(attribute='primary_title') | join(', ') }}{% endif %}{% endblock %}
 {% block og_image %}{{ request.url_root }}poster/{{ nid }}{% endblock %}
 {% block twitter_card %}summary{% endblock %}
+{% block og_type %}profile{% endblock %}
 {% block content %}
 <div class="flex flex-col sm:flex-row gap-6">
 	<div class="w-40 shrink-0 mx-auto sm:mx-0"><div class="aspect-[2/3] rounded-xl overflow-hidden bg-zinc-900 ring-1 ring-zinc-800">{{ poster(nid, 'w-full h-full object-cover') }}</div></div>
