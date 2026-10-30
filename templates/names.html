@@ -11,7 +11,7 @@
 	</select>
 	<select name="sort" class="{{ inp }}">{% for s, label in [('score', 'Popularity'), ('credits', 'Most credits'), ('name', 'Name'), ('born', 'Youngest')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}</select>
 	<input type="hidden" name="noimg" value="0">
-	<label class="flex items-center gap-2 px-1 text-sm cursor-pointer"><input type="checkbox" name="noimg" value="1" {{ 'checked' if noimg }} class="accent-yellow-400"> Hide people without an image</label>
+	<label class="flex items-center gap-2 px-1 text-sm cursor-pointer"><input type="checkbox" name="noimg" value="1" {{ 'checked' if noimg }} onchange="remember('noimg', this.checked)" class="accent-yellow-400"> Hide people without an image</label>
 </form>
 {% if people %}<div id="results" class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1">{% for p in people %}{{ person_card(p) }}{% endfor %}{{ more(page, has_next) }}</div>{% else %}<p class="text-zinc-500">Nobody found.</p>{% endif %}
 <p class="mt-6 text-xs text-zinc-600">Popularity = total IMDb votes across every title the person is credited on.</p>
