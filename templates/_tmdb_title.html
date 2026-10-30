@@ -88,7 +88,7 @@
 </div>
 
 {% if d.cast or d.crew %}
-<section id="cast" hx-swap-oob="true" class="mt-10 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" x-data="{tab: 'cast', q: '', all: false}">
+<section id="cast" hx-swap-oob="true" class="mt-10 max-w-3xl sm:ml-[13.5rem] rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" x-data="{tab: 'cast', q: '', all: false}">
 	<div class="flex flex-wrap items-center gap-1.5 mb-3">
 		<h2 class="text-lg font-semibold mr-3">Cast & crew</h2>
 		<button @click="tab = 'cast'" :class="tab == 'cast' ? 'bg-accent text-black' : 'bg-zinc-800 hover:bg-zinc-700'" class="px-3 py-1 rounded-md text-sm">Cast <span class="opacity-60">{{ d.cast | length }}</span></button>
