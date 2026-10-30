@@ -1575,6 +1575,18 @@ async def not_found(_):
 	return await render_template('404.html'), 404
 
 
+@app.errorhandler(400)
+@app.errorhandler(403)
+@app.errorhandler(405)
+@app.errorhandler(500)
+async def error_page(error):
+	'''Show the custom error page for other HTTP errors.'''
+
+	code = getattr(error, 'status_code', 500)
+
+	return await render_template('error.html', code=code), code
+
+
 @app.errorhandler(503)
 async def not_built(_):
 	'''Show the build status page when the database is missing.'''

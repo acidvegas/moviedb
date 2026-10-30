@@ -72,6 +72,18 @@ function enhanceSelects(root) {
 	});
 }
 document.addEventListener('DOMContentLoaded', () => enhanceSelects(document));
+
+// Loading bar across the top while a page or results load (shown after a short delay so fast loads don't flash it)
+document.addEventListener('htmx:beforeRequest', e => {
+	if (e.detail.boosted || e.detail.target.tagName === 'MAIN') {
+		clearTimeout(window._loadbar);
+		window._loadbar = setTimeout(() => document.getElementById('loadbar').hidden = false, 150);
+	}
+});
+document.addEventListener('htmx:afterRequest', () => {
+	clearTimeout(window._loadbar);
+	document.getElementById('loadbar').hidden = true;
+});
 document.addEventListener('htmx:afterSettle', e => enhanceSelects(e.detail.elt));
 
 // Surface failed htmx requests instead of silently doing nothing
