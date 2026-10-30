@@ -33,6 +33,7 @@
 <body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen flex flex-col" hx-boost="true">
 	<div id="loadbar" hidden></div>
 	<div id="pageload">Loading…</div>
+	<noscript><style>#pageload { display: none; }</style><div style="padding: 12px 16px; background: #f5c518; color: #000; font: 600 14px system-ui, sans-serif; text-align: center;">MovieDB needs JavaScript. Please enable it to use this site.</div></noscript>
 	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur" x-data="{search: false, menu: false}">
 		<div class="mx-auto max-w-7xl px-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4">
 			<a href="/" class="h-14 flex items-center font-extrabold tracking-tight text-lg whitespace-nowrap shrink-0"><span class="bg-accent text-black px-1.5 py-0.5 rounded">Movie</span><span class="text-zinc-300 font-semibold ml-0.5">DB</span></a>
