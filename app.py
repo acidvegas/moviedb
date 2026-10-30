@@ -649,16 +649,6 @@ def password_hash(password: str) -> str:
 	return f'scrypt${salt.hex()}${hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1).hex()}'
 
 
-def pref(name: str) -> bool:
-	'''
-	Read an on/off UI preference cookie set by remember() in utils.js, on by default.
-
-	:param name: Cookie name
-	'''
-
-	return request.cookies.get(name, '1') != '0'
-
-
 async def precache():
 	'''Pre-download TMDB details and posters for the library plus the most popular titles and people.'''
 
@@ -1539,7 +1529,7 @@ def inject():
 	def img(path: str | None, size: str = 'w185') -> str:
 		return f'/img/{size}{path}' if path else ''
 
-	return {'fmt_id': fmt_id, 'json': json, 'pref': pref, 'page_url': page_url, 'img': img, 'status': read_status(), 'no_photo': 'data:image/svg+xml,' + quote(NO_PHOTO), 'user': g.get('user')}
+	return {'fmt_id': fmt_id, 'json': json, 'page_url': page_url, 'img': img, 'status': read_status(), 'no_photo': 'data:image/svg+xml,' + quote(NO_PHOTO), 'user': g.get('user')}
 
 
 @app.context_processor
@@ -2159,7 +2149,7 @@ async def names():
 	rows   = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
 	people = rows[:PAGE_SIZE]
 
-	if noimg := request.args.getlist('noimg')[-1] != '0' if 'noimg' in request.args else pref('noimg'):
+	if noimg := request.args.getlist('noimg')[-1:] != ['0']:
 		found  = await asyncio.gather(*(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
 		people = [p for p, path in zip(people, found) if path]
 
@@ -2301,7 +2291,7 @@ async def search():
 	fts   = fts_query(q)
 	full  = 'HX-Request' not in request.headers or request.headers.get('HX-Boosted')
 	kind  = request.args.get('kind', 'all') if full else 'all'
-	noimg = full and (request.args.getlist('noimg')[-1] != '0' if 'noimg' in request.args else pref('noimg'))
+	noimg = full and request.args.getlist('noimg')[-1:] != ['0']
 
 	if not fts:
 		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[], kind=kind, noimg=noimg)
