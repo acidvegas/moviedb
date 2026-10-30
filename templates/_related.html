@@ -1,0 +1,23 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _related.html -->
+
+{% from '_macros.html' import card with context %}
+{% if series %}
+<section class="mt-10">
+	<h2 class="text-lg font-semibold mb-3">{{ collection or 'In this series' }} <span class="text-zinc-500 text-sm font-normal">{{ series | length }}</span></h2>
+	<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
+		{% for t in series %}<div class="{{ 'opacity-50' if t.tconst == tconst }}">{{ card(t) }}</div>{% endfor %}
+	</div>
+</section>
+{% endif %}
+{% if similar %}
+<section class="mt-10">
+	<div class="flex items-baseline justify-between gap-4 mb-3">
+		<h2 class="text-lg font-semibold">More like this</h2>
+		{% if user %}<a href="/recommend?source=title:{{ tconst }}" class="text-sm text-zinc-400 hover:text-accent">See all →</a>{% endif %}
+	</div>
+	<div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
+		{% for t in similar %}{{ card(t) }}{% endfor %}
+	</div>
+</section>
+{% endif %}

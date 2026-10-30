@@ -82,6 +82,8 @@
 </section>
 {% endif %}
 
+<div hx-get="/title/{{ tid }}/related" hx-trigger="revealed" hx-swap="outerHTML"></div>
+
 {% if akas %}
 <section class="mt-10">
 	<h2 class="text-lg font-semibold mb-3">Also known as</h2>
