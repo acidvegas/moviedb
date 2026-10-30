@@ -1582,7 +1582,7 @@ async def not_found(_):
 async def error_page(error):
 	'''Show the custom error page for other HTTP errors.'''
 
-	code = getattr(error, 'status_code', 500)
+	code = getattr(error, 'code', 500)
 
 	return await render_template('error.html', code=code), code
 
