@@ -67,7 +67,7 @@
 	{% endif %}
 
 	{% if streams %}
-	<details open class="group mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+	<details {{ 'open' if pref('box_streams') }} ontoggle="remember('box_streams', this.open)" class="group mt-4 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
 		<summary class="flex items-center gap-2 cursor-pointer list-none">
 			<h3 class="flex items-center gap-1.5 text-sm font-semibold"><svg class="w-3 h-3 transition group-open:rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M7 5l6 5-6 5z"/></svg>3rd-party streaming</h3>
 		</summary>
@@ -78,7 +78,7 @@
 	{% endif %}
 
 	{% if torrents %}
-	<details open class="group mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+	<details {{ 'open' if pref('box_torrents') }} ontoggle="remember('box_torrents', this.open)" class="group mt-3 rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
 		<summary class="flex items-center justify-between gap-2 cursor-pointer list-none">
 			<h3 class="flex items-center gap-1.5 text-sm font-semibold"><svg class="w-3 h-3 transition group-open:rotate-90" fill="currentColor" viewBox="0 0 20 20"><path d="M7 5l6 5-6 5z"/></svg>Torrents</h3>
 		</summary>
@@ -88,18 +88,24 @@
 </div>
 
 {% if d.cast or d.crew %}
-<section id="cast" hx-swap-oob="true" class="mt-10 max-w-3xl sm:ml-[13.5rem] rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" x-data="{tab: 'cast', q: '', all: false}">
-	<div class="flex flex-wrap items-center gap-1.5 mb-3">
-		<h2 class="text-lg font-semibold mr-3">Cast & crew</h2>
-		<button @click="tab = 'cast'" :class="tab == 'cast' ? 'bg-accent text-black' : 'bg-zinc-800 hover:bg-zinc-700'" class="px-3 py-1 rounded-md text-sm">Cast <span class="opacity-60">{{ d.cast | length }}</span></button>
-		<button @click="tab = 'crew'" :class="tab == 'crew' ? 'bg-accent text-black' : 'bg-zinc-800 hover:bg-zinc-700'" class="px-3 py-1 rounded-md text-sm">Crew <span class="opacity-60">{{ d.crew | length }}</span></button>
-		<input x-model="q" placeholder="Filter…" class="ml-auto w-40 rounded-md bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
+{% set hide = pref('cast_noimg') %}
+<section id="cast" hx-swap-oob="true" class="mt-10 max-w-3xl sm:ml-[13.5rem] rounded-xl border border-zinc-800 bg-zinc-900/60 p-3" x-data="{open: {{ 'true' if pref('box_cast') else 'false' }}, tab: 'cast', q: '', all: false, hide: {{ 'true' if hide else 'false' }}}">
+	<div class="flex flex-wrap items-center gap-1.5">
+		<button @click="open = !open; remember('box_cast', open)" class="flex items-center gap-1.5 mr-3 text-lg font-semibold"><svg class="w-3 h-3 transition" :class="open && 'rotate-90'" fill="currentColor" viewBox="0 0 20 20"><path d="M7 5l6 5-6 5z"/></svg>Cast & crew</button>
+		{% for group, people in (('cast', d.cast), ('crew', d.crew)) %}
+		<button x-show="open" @click="tab = '{{ group }}'" :class="tab == '{{ group }}' ? 'bg-accent text-black' : 'bg-zinc-800 hover:bg-zinc-700'" class="px-3 py-1 rounded-md text-sm">{{ group | capitalize }} <span class="opacity-60" x-text="hide ? {{ people | selectattr('profile') | list | length }} : {{ people | length }}">{{ (people | selectattr('profile') | list if hide else people) | length }}</span></button>
+		{% endfor %}
+		<label x-show="open" class="flex items-center gap-1.5 ml-2 text-sm text-zinc-400 cursor-pointer"><input type="checkbox" x-model="hide" @change="remember('cast_noimg', hide)" class="accent-yellow-400"> Hide without photo</label>
+		<input x-show="open" x-model="q" placeholder="Filter…" class="ml-auto w-40 rounded-md bg-zinc-950 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
 	</div>
 	{% for group, people in (('cast', d.cast), ('crew', d.crew | sort(attribute='department'))) %}
-	<div x-show="tab == '{{ group }}'" class="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 gap-1">
+	{% set ns = namespace(i=0) %}
+	{% set with_photo = people | selectattr('profile') | list | length %}
+	<div x-show="open && tab == '{{ group }}'" class="mt-3 grid grid-cols-[minmax(0,1fr)] sm:grid-cols-2 lg:grid-cols-3 gap-1">
 		{% for c in people %}
+		{% if c.profile %}{% set ns.i = ns.i + 1 %}{% endif %}
 		{% set role = c.character if group == 'cast' else ((c.department ~ ' · ') if c.department else '') ~ (c.job or '') %}
-		<a href="/go/tmdb/person/{{ c.id }}?name={{ c.name | urlencode }}" x-show="(all || {{ loop.index }} <= 18 || q) && (!q || $el.dataset.s.includes(q.toLowerCase()))" data-s="{{ (c.name ~ ' ' ~ (role or '')) | lower }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800">
+		<a href="/go/tmdb/person/{{ c.id }}?name={{ c.name | urlencode }}" x-show="{{ '' if c.profile else '!hide && ' }}(all || q || (hide ? {{ ns.i }} : {{ loop.index }}) <= 18) && (!q || $el.dataset.s.includes(q.toLowerCase()))" data-s="{{ (c.name ~ ' ' ~ (role or '')) | lower }}" class="group min-w-0 flex items-center gap-3 p-2 rounded-lg hover:bg-zinc-800">
 			<div class="w-12 h-12 rounded-full overflow-hidden bg-zinc-800 shrink-0"><img src="{{ img(c.profile, 'w185') if c.profile else no_photo }}" loading="lazy" alt="" class="w-full h-full object-cover"></div>
 			<div class="min-w-0">
 				<div class="text-sm font-medium truncate group-hover:text-accent">{{ c.name }}</div>
@@ -108,7 +114,7 @@
 		</a>
 		{% endfor %}
 	</div>
-	{% if people | length > 18 %}<button x-show="tab == '{{ group }}' && !q" @click="all = !all" x-text="all ? 'Show less' : 'Show all {{ people | length }}'" class="mt-3 w-full px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"></button>{% endif %}
+	<button x-show="open && tab == '{{ group }}' && !q && (hide ? {{ with_photo }} : {{ people | length }}) > 18" @click="all = !all" x-text="all ? 'Show less' : 'Show all ' + (hide ? {{ with_photo }} : {{ people | length }})" class="mt-3 w-full px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-sm"></button>
 	{% endfor %}
 </section>
 {% endif %}
