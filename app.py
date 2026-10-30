@@ -1346,8 +1346,6 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'countries'     : [c['name'] for c in d.get('production_countries', [])],
 			'languages'     : [l['english_name'] for l in d.get('spoken_languages', [])],
 			'companies'     : [c['name'] for c in d.get('production_companies', [])],
-			'tmdb_rating'   : d.get('vote_average'),
-			'tmdb_votes'    : d.get('vote_count'),
 			'providers'     : list(providers.values()),
 			'providers_link': watch.get('link'),
 			'recs'          : [{'id': r['id'], 'kind': r.get('media_type', data['kind']), 'title': r.get('title') or r.get('name') or '', 'year': (r.get('release_date') or r.get('first_air_date') or '')[:4]} for r in d.get('recommendations', {}).get('results', [])]

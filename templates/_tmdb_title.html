@@ -23,8 +23,7 @@
 		('Created by', d.created_by | join(', ') if d.created_by else None), ('Network', d.networks | join(', ') if d.networks else None),
 		('Country', d.countries | join(', ') if d.countries else None), ('Language', d.languages | join(', ') if d.languages else None),
 		('Budget', '${:,}'.format(d.budget) if d.budget else None), ('Box office', '${:,}'.format(d.revenue) if d.revenue else None),
-		('Collection', d.collection), ('Studios', d.companies[:5] | join(', ') if d.companies else None),
-		('TMDB', '%.1f (%s votes)' | format(d.tmdb_rating, '{:,}'.format(d.tmdb_votes)) if d.tmdb_votes else None)
+		('Collection', d.collection), ('Studios', d.companies[:5] | join(', ') if d.companies else None)
 	] %}
 	<dl class="mt-4 grid sm:grid-cols-2 gap-x-6 gap-y-1 text-sm">
 		{% for label, value in facts if value %}<div class="flex gap-2"><dt class="w-24 shrink-0 text-zinc-500">{{ label }}</dt><dd class="min-w-0">{{ value }}</dd></div>{% endfor %}
