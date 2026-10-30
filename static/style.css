@@ -13,3 +13,8 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 #loadbar { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 60; overflow: hidden; pointer-events: none; }
 #loadbar::before { content: ''; position: absolute; top: 0; bottom: 0; width: 40%; background: #f5c518; box-shadow: 0 0 8px #f5c518; animation: loadbar 1s ease-in-out infinite; }
 @keyframes loadbar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+#pageload { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #09090b; color: #71717a; font: 500 13px system-ui, sans-serif; transition: opacity .25s; animation: pageload-out 0s 8s forwards; }
+@keyframes pageload-out { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+#pageload.done { opacity: 0; pointer-events: none; }
+#pageload::before { content: ''; width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #f5c518; border-radius: 50%; animation: pageload .8s linear infinite; }
+@keyframes pageload { to { transform: rotate(360deg); } }
