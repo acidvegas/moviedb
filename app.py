@@ -51,12 +51,15 @@ TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'new
 MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE user_id = {uid} AND kind = 'tt')"}
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
+TOPIC_GENRES = {'kid': 'Family', 'kids': 'Family', 'children': 'Family', 'childrens': 'Family', 'family': 'Family', 'animated': 'Animation', 'animation': 'Animation', 'cartoon': 'Animation', 'cartoons': 'Animation', 'anime': 'Animation', 'scary': 'Horror', 'horror': 'Horror', 'funny': 'Comedy', 'comedy': 'Comedy', 'comedies': 'Comedy', 'romantic': 'Romance', 'romance': 'Romance', 'action': 'Action', 'adventure': 'Adventure', 'scifi': 'Sci-Fi', 'documentary': 'Documentary', 'documentaries': 'Documentary', 'thriller': 'Thriller', 'thrillers': 'Thriller', 'war': 'War', 'western': 'Western', 'westerns': 'Western', 'musical': 'Musical', 'musicals': 'Musical', 'mystery': 'Mystery', 'crime': 'Crime', 'drama': 'Drama', 'dramas': 'Drama', 'fantasy': 'Fantasy', 'sports': 'Sport', 'biopic': 'Biography', 'historical': 'History'}
+TOPIC_TYPES  = {'movie': ('movie', 'tvMovie'), 'movies': ('movie', 'tvMovie'), 'film': ('movie', 'tvMovie'), 'films': ('movie', 'tvMovie'), 'show': ('tvSeries', 'tvMiniSeries'), 'shows': ('tvSeries', 'tvMiniSeries'), 'series': ('tvSeries', 'tvMiniSeries'), 'tv': ('tvSeries', 'tvMiniSeries')}
+TOPIC_STOP   = {'a', 'an', 'the', 'and', 'or', 'of', 'for', 'with', 'about', 'to', 'in', 'on', 'best', 'good', 'top', 'great'}
 SCHEMA_TYPES = {'movie': 'Movie', 'tvMovie': 'Movie', 'short': 'Movie', 'video': 'Movie', 'tvSeries': 'TVSeries', 'tvMiniSeries': 'TVSeries', 'tvEpisode': 'TVEpisode'}
 NAME_SORTS   = {'score': 'score DESC', 'credits': 'credits DESC', 'name': 'name COLLATE NOCASE', 'born': 'birth_year DESC'}
 TMDB_TTL     = {'tv': 86400, 'movie': 30 * 86400, 'episode': 30 * 86400, 'person': 30 * 86400}
 TMDB_RATE    = 35
 IMG_SIZES    = ('w92', 'w185', 'w342', 'w500', 'w780', 'w1280', 'original')
-PRECACHE     = {'titles': 50_000, 'people': 20_000, 'workers': 12}
+PRECACHE     = {'titles': 100_000, 'people': 20_000, 'workers': 12}
 SUBS_DIR     = importer.DATA_DIR / 'subs'
 OS_AGENT     = 'MovieDB v1.0'
 WEEK         = 7 * 86400
@@ -108,6 +111,7 @@ CREATE TABLE IF NOT EXISTS posters         (id TEXT PRIMARY KEY, url TEXT, sourc
 CREATE TABLE IF NOT EXISTS tmdb            (id TEXT PRIMARY KEY, data TEXT, fetched REAL);
 CREATE TABLE IF NOT EXISTS tmdb_ids        (kind TEXT, tmdb_id INTEGER, imdb_id TEXT, PRIMARY KEY (kind, tmdb_id));
 CREATE TABLE IF NOT EXISTS title_providers (tconst INTEGER, provider_id INTEGER, PRIMARY KEY (tconst, provider_id));
+CREATE TABLE IF NOT EXISTS title_keywords  (keyword TEXT, tconst INTEGER, PRIMARY KEY (keyword, tconst));
 CREATE TABLE IF NOT EXISTS ratings         (user_id INTEGER, kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (user_id, kind, id));
 CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (user_id, tconst, mark));
 CREATE TABLE IF NOT EXISTS follows         (user_id INTEGER, nconst INTEGER, added REAL, PRIMARY KEY (user_id, nconst));
@@ -1259,6 +1263,8 @@ async def tmdb_details(imdb_id: str, cached_only: bool = False) -> dict | None:
 		if imdb_id.startswith('tt'):
 			await db.execute('DELETE FROM title_providers WHERE tconst = ?', (int(imdb_id[2:]),))
 			await db.executemany('INSERT OR IGNORE INTO title_providers VALUES (?, ?)', [(int(imdb_id[2:]), p['id']) for p in (fresh or {}).get('providers', [])])
+			await db.execute('DELETE FROM title_keywords WHERE tconst = ?', (int(imdb_id[2:]),))
+			await db.executemany('INSERT OR IGNORE INTO title_keywords VALUES (?, ?)', [(k.lower(), int(imdb_id[2:])) for k in (fresh or {}).get('keywords', [])])
 		await db.commit()
 
 	return fresh
@@ -1401,6 +1407,41 @@ async def tmdb_request(path: str, key: str, params: dict | None = None) -> dict 
 	return None
 
 
+async def topic_search(q: str, limit: int, types: tuple = ()) -> tuple:
+	'''
+	Search titles by topic: genre words (kids, scary...), type words (movies, shows) and the rest as TMDB keywords stored locally. Returns (titles, label).
+
+	:param q: Search query
+	:param limit: Number of results
+	:param types: Title types forced by the search page's kind filter
+	'''
+
+	words  = re.findall(r'[a-z0-9]+', q.lower())
+	genres = list(dict.fromkeys(TOPIC_GENRES[w] for w in words if w in TOPIC_GENRES))
+	terms  = [w for w in words if w not in TOPIC_GENRES and w not in TOPIC_TYPES and w not in TOPIC_STOP]
+	types  = types or next((TOPIC_TYPES[w] for w in words if w in TOPIC_TYPES), REC_TYPES)
+
+	if len(words) < 2 and not terms or not genres and not terms:
+		return [], ''
+
+	where  = [f'type IN ({",".join("?" * len(types))})']
+	params = list(types)
+
+	for genre in genres:
+		where.append("(',' || genres || ',') LIKE ?")
+		params.append(f'%,{genre},%')
+
+	for term in terms:
+		forms = {term, term[:-1]} if term.endswith('s') and len(term) > 3 else {term}
+		where.append(f'tconst IN (SELECT tconst FROM u.title_keywords WHERE {" OR ".join("keyword = ? OR keyword LIKE ? OR keyword LIKE ? OR keyword LIKE ?" for _ in forms)})')
+		for form in forms:
+			params.extend([form, f'{form} %', f'% {form}', f'% {form} %'])
+
+	rows = await query(f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY votes DESC LIMIT ?', params + [limit])
+
+	return rows, ' · '.join(genres + terms)
+
+
 async def torrent_search(tconst: int) -> tuple:
 	'''
 	Search bitmagnet's Torznab API by IMDb id (episodes search their show). Returns the 10 torrents with the most seeders, the total match count, and a web UI search URL (None for non-admins on the shared server). Raises RuntimeError on failure.
@@ -1490,6 +1531,8 @@ async def startup():
 				if await db.execute_fetchall("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)):
 					await db.execute(f'ALTER TABLE {table} RENAME TO {table}_old')
 		await db.executescript(USER_SCHEMA)
+		if not await db.execute_fetchall('SELECT 1 FROM title_keywords LIMIT 1'):
+			await db.execute("INSERT OR IGNORE INTO title_keywords SELECT lower(k.value), CAST(substr(t.id, 3) AS INTEGER) FROM tmdb t, json_each(t.data, '$.keywords') k WHERE t.id LIKE 'tt%' AND json_valid(t.data)")
 		await db.execute("INSERT OR IGNORE INTO users (id, name, admin, approved, created) VALUES (1, 'admin', 1, 1, ?)", (time.time(),))
 		await migrate_users(db)
 		admin = (await db.execute_fetchall('SELECT password FROM users WHERE id = 1'))[0]['password']
@@ -1676,6 +1719,7 @@ async def admin():
 			await db.execute('DELETE FROM posters')
 			await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
 			await db.execute('DELETE FROM title_providers')
+			await db.execute('DELETE FROM title_keywords')
 			shutil.rmtree(IMAGE_DIR, ignore_errors=True)
 			state['images_at'] = 0.0
 		await db.commit()
@@ -2375,13 +2419,15 @@ async def search():
 	titles   = await search_titles(fts, limit, types=types) if kind != 'people' else []
 	people   = await query('SELECT n.* FROM names_fts f JOIN names n ON n.nconst = f.rowid WHERE names_fts MATCH ? ORDER BY n.score DESC LIMIT ?', (fts, limit)) if kind in ('all', 'people') else []
 	episodes = await search_titles(fts, limit, episodes=True) if full and kind in ('all', 'tv') else []
+	topics, topic = await topic_search(q, 30, types) if full and kind != 'people' else ([], '')
 
 	if noimg:
-		found  = await asyncio.gather(*(ensure_poster(fmt_id('tt', t['tconst'])) for t in titles), *(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
-		people = [p for p, path in zip(people, found[len(titles):]) if path]
+		found  = await asyncio.gather(*(ensure_poster(fmt_id('tt', t['tconst'])) for t in titles + topics), *(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
+		people = [p for p, path in zip(people, found[len(titles) + len(topics):]) if path]
+		topics = [t for t, path in zip(topics, found[len(titles):]) if path]
 		titles = [t for t, path in zip(titles, found) if path]
 
-	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, kind=kind, noimg=noimg)
+	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, topics=topics, topic=topic, kind=kind, noimg=noimg)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
