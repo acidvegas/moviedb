@@ -144,7 +144,7 @@ document.addEventListener('keydown', e => {
 	else if (digit >= 1 && digit <= 5) clickIn(`[data-key="rate-${digit * 2 - (e.shiftKey ? 1 : 0)}"]`);
 });
 
-// Full-screen loading overlay on a fresh page load: lifts once the page and its first htmx partials (TMDB details) are in, never waiting on slow extras, and at most 6s
+// Full-screen loading overlay on a fresh page load: lifts once the page is parsed and its first htmx partials (TMDB details) are in, never waiting on images, fonts or slow extras, and at most 6s
 const pageload = {pending: 0, loaded: false, over: false};
 function pageloadDone(force) {
 	if (force || (pageload.loaded && !pageload.pending)) {
@@ -165,5 +165,5 @@ document.addEventListener('htmx:afterRequest', e => {
 	}
 });
 document.addEventListener('htmx:afterSwap', () => { if (pageload.over) document.getElementById('pageload')?.classList.add('done'); });
-window.addEventListener('load', () => { pageload.loaded = true; setTimeout(pageloadDone); });
+document.addEventListener('DOMContentLoaded', () => { pageload.loaded = true; setTimeout(pageloadDone); });
 setTimeout(() => pageloadDone(true), 6000);

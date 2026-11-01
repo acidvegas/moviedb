@@ -25,13 +25,12 @@
 	<meta name="twitter:card" content="{% block twitter_card %}summary_large_image{% endblock %}">
 	<meta name="twitter:image:alt" content="{{ self.title() }}">
 	{% if ld %}<script type="application/ld+json">{{ ld | tojson }}</script>{% endif %}
-	<script src="/static/vendor/tailwind.js"></script>
-	<script>tailwind.config = {darkMode: 'class', theme: {extend: {fontFamily: {sans: ['Inter', 'system-ui', 'sans-serif']}, colors: {accent: {DEFAULT: '#f5c518', dim: '#b8940f'}}}}}</script>
+	<link rel="stylesheet" href="/static/tailwind.css?v=1">
 	<link rel="stylesheet" href="/static/vendor/fonts/inter.css">
 	<script src="/static/vendor/htmx.min.js"></script>
 	<script defer src="/static/vendor/alpine.min.js"></script>
 	<link rel="stylesheet" href="/static/style.css?v=3">
-	<script defer src="/static/utils.js?v=4"></script>
+	<script defer src="/static/utils.js?v=5"></script>
 </head>
 <body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen flex flex-col" hx-boost="true">
 	<div id="loadbar" hidden></div>
