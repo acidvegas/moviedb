@@ -6,7 +6,7 @@
 <div class="flex flex-col lg:flex-row gap-6">
 	<aside class="lg:w-64 shrink-0" x-data="{open: window.innerWidth >= 1024}">
 		<button class="lg:hidden w-full mb-2 px-3 py-2 rounded-lg bg-zinc-900 text-sm text-left" @click="open = !open">Filters</button>
-		<form x-show="open" action="/titles" method="get" class="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:pr-1" hx-get="/titles" hx-trigger="change, input from:#f-q delay:400ms" hx-target="main" hx-select="main" hx-push-url="true">
+		<form x-show="open" action="/titles" method="get" class="space-y-4 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto lg:-mx-1 lg:px-1 lg:pb-1" hx-get="/titles" hx-trigger="change, input from:#f-q delay:400ms" hx-target="main" hx-select="main" hx-push-url="true">
 			<div><label class="text-xs text-zinc-500">Title contains</label><input id="f-q" name="q" value="{{ args.q or '' }}" class="{{ inp }}"></div>
 			<div><label class="text-xs text-zinc-500">Type</label>
 				<select name="type" class="{{ inp }}"><option value="">All (except episodes)</option>{% for t in types %}<option value="{{ t }}" {{ 'selected' if args.type == t }}>{{ type_label(t) }}</option>{% endfor %}</select></div>
