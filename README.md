@@ -61,6 +61,14 @@ venv/bin/python app.py
 
 To build or update the database by hand, run `venv/bin/python importer.py`.
 
+## Styling
+
+The page styles are pre-built into `static/tailwind.css` with the [Tailwind CSS standalone CLI](https://github.com/tailwindlabs/tailwindcss/releases/tag/v3.4.16) *(v3.4.16, no Node needed)*. After adding or changing classes in the templates, rebuild it:
+
+```sh
+./tailwindcss -c tailwind.config.js -i static/tailwind.in.css -o static/tailwind.css --minify
+```
+
 ## Configuration
 
 Set in `.env` *(see `.env.example`)*:
@@ -75,17 +83,18 @@ Everything else is set in the web interface: per-account options under **Setting
 
 ## Files
 
-| Path          | Description                                                       |
-|---------------|-------------------------------------------------------------------|
-| `app.py`      | Web app *(Quart)*, background scheduler, TMDB and Letterboxd      |
-| `importer.py` | Downloads the IMDb datasets and builds `imdb.db`                  |
-| `setup.sh`    | Installer and systemd service setup                               |
-| `Dockerfile`  | Container image *(used by `docker-compose.yml`)*                  |
-| `imdb.db`     | IMDb database, rebuilt weekly                                     |
-| `user.db`     | Accounts, ratings, lists, watched/watchlist, settings and caches  |
-| `data/`       | Downloaded datasets, importer status, cached images and subtitles |
-| `templates/`  | Page templates                                                    |
-| `static/`     | CSS, JS, icons and bundled front-end libraries                    |
+| Path                 | Description                                                       |
+|----------------------|-------------------------------------------------------------------|
+| `app.py`             | Web app *(Quart)*, background scheduler, TMDB and Letterboxd      |
+| `importer.py`        | Downloads the IMDb datasets and builds `imdb.db`                  |
+| `setup.sh`           | Installer and systemd service setup                               |
+| `Dockerfile`         | Container image *(used by `docker-compose.yml`)*                  |
+| `tailwind.config.js` | Tailwind settings used to build `static/tailwind.css`             |
+| `imdb.db`            | IMDb database, rebuilt weekly                                     |
+| `user.db`            | Accounts, ratings, lists, watched/watchlist, settings and caches  |
+| `data/`              | Downloaded datasets, importer status, cached images and subtitles |
+| `templates/`         | Page templates                                                    |
+| `static/`            | CSS, JS, icons and bundled front-end libraries                    |
 
 Back up `user.db`. Everything else can be rebuilt.
 
