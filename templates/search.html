@@ -9,6 +9,12 @@
 	<input type="hidden" name="noimg" value="0">
 	<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="noimg" value="1" {{ 'checked' if noimg }} onchange="remember('noimg', this.checked); this.form.requestSubmit()" class="accent-yellow-400"> Hide results without an image</label>
 </form>
+{% if topics %}
+<section class="mb-10">
+	<div class="flex items-baseline justify-between mb-3"><h2 class="text-lg font-semibold">Matching topics <span class="text-sm font-normal text-zinc-500">{{ topic }}</span></h2></div>
+	{{ grid(topics) }}
+</section>
+{% endif %}
 {% if people %}
 <section class="mb-10">
 	<div class="flex items-baseline justify-between mb-3"><h2 class="text-lg font-semibold">People</h2><a href="/names?q={{ q | urlencode }}" class="text-sm text-zinc-400 hover:text-accent">More →</a></div>
@@ -34,5 +40,5 @@
 	</div>
 </section>
 {% endif %}
-{% if not (titles or people or episodes) %}<p class="text-zinc-500">Nothing found.</p>{% endif %}
+{% if not (titles or people or episodes or topics) %}<p class="text-zinc-500">Nothing found.</p>{% endif %}
 {% endblock %}
