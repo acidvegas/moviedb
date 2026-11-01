@@ -29,12 +29,47 @@
 	<link rel="stylesheet" href="/static/vendor/fonts/inter.css">
 	<script src="/static/vendor/htmx.min.js"></script>
 	<script defer src="/static/vendor/alpine.min.js"></script>
-	<link rel="stylesheet" href="/static/style.css?v=3">
-	<script defer src="/static/utils.js?v=5"></script>
+	<link rel="stylesheet" href="/static/style.css?v=4">
+	<style>
+		#pageload { position: fixed; inset: 0; z-index: 70; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: #09090b; color: #71717a; font: 500 13px system-ui, sans-serif; transition: opacity .25s; animation: pageload-out 0s 8s forwards; }
+		@keyframes pageload-out { to { opacity: 0; visibility: hidden; pointer-events: none; } }
+		#pageload.done { opacity: 0; pointer-events: none; }
+		#pageload::before { content: ''; width: 40px; height: 40px; border: 3px solid #27272a; border-top-color: #f5c518; border-radius: 50%; animation: pageload .8s linear infinite; }
+		@keyframes pageload { to { transform: rotate(360deg); } }
+	</style>
+	<script defer src="/static/utils.js?v=6"></script>
 </head>
 <body class="relative bg-zinc-950 text-zinc-200 font-sans antialiased min-h-screen flex flex-col" hx-boost="true">
 	<div id="loadbar" hidden></div>
 	<div id="pageload">Loading…</div>
+	<script>
+	// Full-screen loading overlay on a fresh page load: lifts once the page is parsed and the partials it loads on arrival (TMDB details) are in, never waiting on images, fonts, user-triggered requests or slow extras, and at most 6s
+	if (!window._pageloadSetup) {
+		window._pageloadSetup = true;
+		const pageload = {pending: 0, loaded: false, over: false};
+		function pageloadDone(force) {
+			if (force || (pageload.loaded && !pageload.pending)) {
+				pageload.over = true;
+				document.getElementById('pageload')?.classList.add('done');
+			}
+		}
+		document.addEventListener('htmx:beforeRequest', e => {
+			if (!pageload.over && (e.detail.elt.getAttribute('hx-trigger') || '').split(',').some(t => t.trim() === 'load') && !/\/(torrents|subs|related)$/.test(e.detail.pathInfo.requestPath)) {
+				e.detail.xhr._pageload = true;
+				pageload.pending++;
+			}
+		});
+		document.addEventListener('htmx:afterRequest', e => {
+			if (e.detail.xhr._pageload) {
+				pageload.pending--;
+				setTimeout(pageloadDone);
+			}
+		});
+		document.addEventListener('htmx:afterSwap', () => { if (pageload.over) document.getElementById('pageload')?.classList.add('done'); });
+		document.addEventListener('DOMContentLoaded', () => { pageload.loaded = true; setTimeout(pageloadDone); });
+		setTimeout(() => pageloadDone(true), 6000);
+	}
+	</script>
 	<noscript><style>#pageload { display: none; }</style><div style="padding: 12px 16px; background: #f5c518; color: #000; font: 600 14px system-ui, sans-serif; text-align: center;">MovieDB needs JavaScript. Please enable it to use this site.</div></noscript>
 	<header class="sticky top-0 z-40 border-b border-zinc-800/80 bg-zinc-950/85 backdrop-blur" x-data="{search: false, menu: false}">
 		<div class="mx-auto max-w-7xl px-4 flex flex-wrap lg:flex-nowrap items-center gap-x-4">
