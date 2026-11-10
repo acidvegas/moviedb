@@ -112,6 +112,8 @@ CREATE TABLE IF NOT EXISTS tmdb            (id TEXT PRIMARY KEY, data TEXT, fetc
 CREATE TABLE IF NOT EXISTS tmdb_ids        (kind TEXT, tmdb_id INTEGER, imdb_id TEXT, PRIMARY KEY (kind, tmdb_id));
 CREATE TABLE IF NOT EXISTS title_providers (tconst INTEGER, provider_id INTEGER, PRIMARY KEY (tconst, provider_id));
 CREATE TABLE IF NOT EXISTS title_keywords  (keyword TEXT, tconst INTEGER, PRIMARY KEY (keyword, tconst));
+CREATE TABLE IF NOT EXISTS title_released  (tconst INTEGER PRIMARY KEY, released TEXT, language TEXT);
+CREATE INDEX IF NOT EXISTS idx_title_released ON title_released (released);
 CREATE TABLE IF NOT EXISTS ratings         (user_id INTEGER, kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (user_id, kind, id));
 CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (user_id, tconst, mark));
 CREATE TABLE IF NOT EXISTS follows         (user_id INTEGER, nconst INTEGER, added REAL, PRIMARY KEY (user_id, nconst));
@@ -1265,6 +1267,9 @@ async def tmdb_details(imdb_id: str, cached_only: bool = False) -> dict | None:
 			await db.executemany('INSERT OR IGNORE INTO title_providers VALUES (?, ?)', [(int(imdb_id[2:]), p['id']) for p in (fresh or {}).get('providers', [])])
 			await db.execute('DELETE FROM title_keywords WHERE tconst = ?', (int(imdb_id[2:]),))
 			await db.executemany('INSERT OR IGNORE INTO title_keywords VALUES (?, ?)', [(k.lower(), int(imdb_id[2:])) for k in (fresh or {}).get('keywords', [])])
+			await db.execute('DELETE FROM title_released WHERE tconst = ?', (int(imdb_id[2:]),))
+			if (fresh or {}).get('release_date'):
+				await db.execute('INSERT INTO title_released VALUES (?, ?, ?)', (int(imdb_id[2:]), fresh['release_date'], next(iter(fresh.get('languages') or []), None)))
 		await db.commit()
 
 	return fresh
@@ -1533,6 +1538,8 @@ async def startup():
 		await db.executescript(USER_SCHEMA)
 		if not await db.execute_fetchall('SELECT 1 FROM title_keywords LIMIT 1'):
 			await db.execute("INSERT OR IGNORE INTO title_keywords SELECT lower(k.value), CAST(substr(t.id, 3) AS INTEGER) FROM tmdb t, json_each(t.data, '$.keywords') k WHERE t.id LIKE 'tt%' AND json_valid(t.data)")
+		if not await db.execute_fetchall('SELECT 1 FROM title_released LIMIT 1'):
+			await db.execute("INSERT OR IGNORE INTO title_released SELECT CAST(substr(id, 3) AS INTEGER), json_extract(data, '$.release_date'), json_extract(data, '$.languages[0]') FROM tmdb WHERE id LIKE 'tt%' AND json_valid(data) AND json_extract(data, '$.release_date') != ''")
 		await db.execute("INSERT OR IGNORE INTO users (id, name, admin, approved, created) VALUES (1, 'admin', 1, 1, ?)", (time.time(),))
 		await migrate_users(db)
 		admin = (await db.execute_fetchall('SELECT password FROM users WHERE id = 1'))[0]['password']
@@ -1720,6 +1727,7 @@ async def admin():
 			await db.execute("DELETE FROM tmdb WHERE id LIKE 'tt%' OR id LIKE 'nm%'")
 			await db.execute('DELETE FROM title_providers')
 			await db.execute('DELETE FROM title_keywords')
+			await db.execute('DELETE FROM title_released')
 			shutil.rmtree(IMAGE_DIR, ignore_errors=True)
 			state['images_at'] = 0.0
 		await db.commit()
@@ -1806,7 +1814,9 @@ async def index():
 
 	year    = time.localtime().tm_year
 	popular = await query("SELECT * FROM titles WHERE type = 'movie' ORDER BY votes DESC LIMIT 12")
-	recent  = await query("SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? ORDER BY votes DESC LIMIT 12", (year - 1,))
+	today   = time.strftime('%Y-%m-%d')
+	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND r.language = 'English' AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 12", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
+	recent  = recent or await query("SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? ORDER BY votes DESC LIMIT 12", (year - 1,))
 	series  = await query("SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') ORDER BY votes DESC LIMIT 12")
 
 	return await render_template('index.html', popular=popular, recent=recent, series=series)
@@ -2149,15 +2159,30 @@ async def name(nconst: int):
 
 	person  = rows[0]
 	credits = await query('''
-		SELECT t.*, p.category, p.job, p.characters FROM principals p JOIN titles t ON t.tconst = p.tconst WHERE p.nconst = ?
+		SELECT t.*, p.category, p.job, p.characters, e.parent FROM principals p JOIN titles t ON t.tconst = p.tconst LEFT JOIN episodes e ON e.tconst = t.tconst WHERE p.nconst = ?
 		UNION ALL
-		SELECT t.*, c.role, NULL, NULL FROM crew c JOIN titles t ON t.tconst = c.tconst WHERE c.nconst = ? AND NOT EXISTS (SELECT 1 FROM principals p WHERE p.tconst = c.tconst AND p.nconst = c.nconst AND p.category = c.role)
+		SELECT t.*, c.role, NULL, NULL, e.parent FROM crew c JOIN titles t ON t.tconst = c.tconst LEFT JOIN episodes e ON e.tconst = t.tconst WHERE c.nconst = ? AND NOT EXISTS (SELECT 1 FROM principals p WHERE p.tconst = c.tconst AND p.nconst = c.nconst AND p.category = c.role)
 		ORDER BY start_year DESC
 	''', (nconst, nconst))
+	shows  = await titles_by_ids(list({row['parent'] for row in credits if row['parent']}))
 	groups = {}
 
+	# One entry per title and category: episodes fold into their show, and repeat credits (one per character) merge
 	for row in credits:
-		groups.setdefault(row['category'], []).append(row)
+		show  = shows.get(row['parent'])
+		items = groups.setdefault(row['category'], {})
+		item  = items.get((show or row)['tconst'])
+
+		if not item:
+			item = items[(show or row)['tconst']] = {**(show or row), 'roles': [], 'episodes': 0}
+
+		for role in json.loads(row['characters']) if row['characters'] else [row['job']] if row['job'] else []:
+			if role not in item['roles']:
+				item['roles'].append(role)
+
+		item['episodes'] += bool(show)
+
+	groups = {cat: list(items.values()) for cat, items in groups.items()}
 
 	known = [int(t[2:]) for t in (person['known_for'] or '').split(',') if t]
 	known = await titles_by_ids(known)
