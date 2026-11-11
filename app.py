@@ -52,7 +52,7 @@ MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id 
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
 SHOWN_LANGS  = ('en', 'zh', 'cn', 'ja', 'es', 'fr', 'de', 'it', 'ko', 'ru', 'el')
-HIDDEN_SQL   = f"tconst NOT IN (SELECT tconst FROM u.title_language WHERE language NOT IN ({','.join(repr(l) for l in SHOWN_LANGS)}))"
+LANG_NAMES   = {'en': 'English', 'zh': 'Chinese (Mandarin)', 'cn': 'Chinese (Cantonese)', 'ja': 'Japanese', 'ko': 'Korean', 'es': 'Spanish', 'fr': 'French', 'de': 'German', 'it': 'Italian', 'ru': 'Russian', 'el': 'Greek', 'hi': 'Hindi', 'te': 'Telugu', 'ta': 'Tamil', 'ml': 'Malayalam', 'kn': 'Kannada', 'pa': 'Punjabi', 'bn': 'Bengali', 'mr': 'Marathi', 'gu': 'Gujarati', 'or': 'Odia', 'ur': 'Urdu', 'ne': 'Nepali', 'si': 'Sinhala', 'tr': 'Turkish', 'pt': 'Portuguese', 'ar': 'Arabic', 'fa': 'Persian', 'he': 'Hebrew', 'th': 'Thai', 'id': 'Indonesian', 'ms': 'Malay', 'tl': 'Tagalog', 'vi': 'Vietnamese', 'km': 'Khmer', 'sv': 'Swedish', 'da': 'Danish', 'no': 'Norwegian', 'nb': 'Norwegian Bokmål', 'fi': 'Finnish', 'is': 'Icelandic', 'nl': 'Dutch', 'pl': 'Polish', 'cs': 'Czech', 'sk': 'Slovak', 'hu': 'Hungarian', 'ro': 'Romanian', 'bg': 'Bulgarian', 'uk': 'Ukrainian', 'sr': 'Serbian', 'hr': 'Croatian', 'bs': 'Bosnian', 'sl': 'Slovenian', 'mk': 'Macedonian', 'sq': 'Albanian', 'lt': 'Lithuanian', 'lv': 'Latvian', 'et': 'Estonian', 'ka': 'Georgian', 'hy': 'Armenian', 'az': 'Azerbaijani', 'kk': 'Kazakh', 'ca': 'Catalan', 'eu': 'Basque', 'gl': 'Galician', 'ga': 'Irish', 'cy': 'Welsh', 'la': 'Latin', 'eo': 'Esperanto', 'af': 'Afrikaans', 'zu': 'Zulu', 'xh': 'Xhosa', 'sw': 'Swahili', 'yo': 'Yoruba', 'am': 'Amharic', 'mn': 'Mongolian', 'bo': 'Tibetan', 'ku': 'Kurdish', 'ps': 'Pashto', 'xx': 'No language'}
 TOPIC_GENRES = {'kid': 'Family', 'kids': 'Family', 'children': 'Family', 'childrens': 'Family', 'family': 'Family', 'animated': 'Animation', 'animation': 'Animation', 'cartoon': 'Animation', 'cartoons': 'Animation', 'anime': 'Animation', 'scary': 'Horror', 'horror': 'Horror', 'funny': 'Comedy', 'comedy': 'Comedy', 'comedies': 'Comedy', 'romantic': 'Romance', 'romance': 'Romance', 'action': 'Action', 'adventure': 'Adventure', 'scifi': 'Sci-Fi', 'documentary': 'Documentary', 'documentaries': 'Documentary', 'thriller': 'Thriller', 'thrillers': 'Thriller', 'war': 'War', 'western': 'Western', 'westerns': 'Western', 'musical': 'Musical', 'musicals': 'Musical', 'mystery': 'Mystery', 'crime': 'Crime', 'drama': 'Drama', 'dramas': 'Drama', 'fantasy': 'Fantasy', 'sports': 'Sport', 'biopic': 'Biography', 'historical': 'History'}
 TOPIC_TYPES  = {'movie': ('movie', 'tvMovie'), 'movies': ('movie', 'tvMovie'), 'film': ('movie', 'tvMovie'), 'films': ('movie', 'tvMovie'), 'show': ('tvSeries', 'tvMiniSeries'), 'shows': ('tvSeries', 'tvMiniSeries'), 'series': ('tvSeries', 'tvMiniSeries'), 'tv': ('tvSeries', 'tvMiniSeries')}
 TOPIC_STOP   = {'a', 'an', 'the', 'and', 'or', 'of', 'for', 'with', 'about', 'to', 'in', 'on', 'best', 'good', 'top', 'great'}
@@ -813,7 +813,7 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 		async with user_db() as db:
 			watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
 
-	hidden     = {r['tconst'] for r in await query(f'SELECT tconst FROM u.title_language WHERE language NOT IN ({",".join("?" * len(SHOWN_LANGS))})', SHOWN_LANGS)}
+	hidden     = {r['tconst'] for r in await query(f'SELECT tconst FROM u.title_language WHERE language NOT IN ({",".join("?" * len(state['shown_langs']))})', state['shown_langs'])}
 	candidates = [t for t in scores if t not in seeds and t not in watched and t not in hidden]
 	titles     = await titles_by_ids(candidates)
 	seed_rows  = await titles_by_ids(seed_ids)
@@ -890,12 +890,18 @@ async def search_titles(fts: str, limit: int, episodes: bool = False, types: tup
 		sql = 'SELECT t.*, e.season, e.episode, p.primary_title AS parent_title, p.tconst AS parent FROM {0} f JOIN titles t ON t.tconst = f.rowid JOIN episodes e ON e.tconst = t.tconst LEFT JOIN titles p ON p.tconst = e.parent WHERE {0} MATCH ? ORDER BY t.votes DESC LIMIT ?'
 		tables = ('episodes_pop_fts', 'episodes_fts')
 	else:
-		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ? AND t.' + HIDDEN_SQL + (f' AND t.type IN ({",".join("?" * len(types))})' if types else '') + ' ORDER BY t.votes DESC LIMIT ?'
+		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ? AND t.' + hidden_sql() + (f' AND t.type IN ({",".join("?" * len(types))})' if types else '') + ' ORDER BY t.votes DESC LIMIT ?'
 		tables = ('titles_pop_fts', 'titles_fts')
 
 	rows = await query(sql.format(tables[0]), (fts, *types, limit))
 
 	return rows if len(rows) >= limit else await query(sql.format(tables[1]), (fts, *types, limit))
+
+
+def hidden_sql() -> str:
+	'''SQL filter that drops titles whose original language is not one of the languages shown in lists (set on the admin page).'''
+
+	return f"tconst NOT IN (SELECT tconst FROM u.title_language WHERE language NOT IN ({','.join(repr(l) for l in state['shown_langs'])}))"
 
 
 async def setting(key: str, default: str = '') -> str:
@@ -1462,7 +1468,7 @@ async def topic_search(q: str, limit: int, types: tuple = ()) -> tuple:
 	if len(words) < 2 and not terms or not genres and not terms:
 		return [], ''
 
-	where  = [f'type IN ({",".join("?" * len(types))})', HIDDEN_SQL]
+	where  = [f'type IN ({",".join("?" * len(types))})', hidden_sql()]
 	params = list(types)
 
 	for genre in genres:
@@ -1589,6 +1595,7 @@ async def startup():
 
 	state['session']   = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15), headers={'User-Agent': USER_AGENT})
 	state['tmdb_lock'] = asyncio.Lock()
+	state['shown_langs'] = tuple(re.findall(r'[a-z]{2,3}', await setting('shown_langs', ','.join(SHOWN_LANGS))))
 	state['scheduler'] = asyncio.create_task(scheduler())
 	state['images_at'] = time.time()
 	spawn(image_usage())
@@ -1729,6 +1736,8 @@ async def admin():
 				FROM users u ORDER BY u.approved, u.admin DESC, u.created DESC
 			''', (SESSION_AGE,))
 
+			langs  = await db.execute_fetchall('SELECT language, count(*) AS n FROM title_language GROUP BY language ORDER BY n DESC')
+
 		meta = await query('SELECT * FROM meta') if importer.DB_PATH.exists() else []
 		size = importer.DB_PATH.stat().st_size if importer.DB_PATH.exists() else 0
 
@@ -1736,7 +1745,7 @@ async def admin():
 			state['images_at'] = time.time()
 			spawn(image_usage())
 
-		return await render_template('admin.html', users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'), tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=state['images'], meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')})
+		return await render_template('admin.html', users=users, registration=await setting('registration', 'open'), approval=await setting('approval', '1'), tmdb_key=await setting('tmdb_key'), cached=cached, tmdb_n=tmdb_n, images=state['images'], meta={m['key']: m['value'] for m in meta}, size=size, bm={key: await setting(key) for key in ('bm_url', 'bm_user', 'bm_pass')}, langs=langs, shown=state['shown_langs'], names=LANG_NAMES)
 
 	form    = await request.form
 	action  = form.get('action')
@@ -1748,6 +1757,11 @@ async def admin():
 	async with user_db() as db:
 		if action == 'registration':
 			await db.executemany('INSERT OR REPLACE INTO settings VALUES (?, ?)', [('registration', 'open' if form.get('registration') else 'closed'), ('approval', '1' if form.get('approval') else '0')])
+		elif action == 'languages':
+			hide  = set(form.getlist('hide'))
+			shown = tuple(r['language'] for r in await db.execute_fetchall('SELECT DISTINCT language FROM title_language') if r['language'] not in hide and re.fullmatch(r'[a-z]{2,3}', r['language']))
+			await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', ('shown_langs', ','.join(shown)))
+			state['shown_langs'] = shown
 		elif action == 'approve':
 			await db.execute('UPDATE users SET approved = 1 WHERE id = ?', (user_id,))
 		elif action == 'password' and user_id != 1 and 6 <= len(password := form.get('password', '')) <= 100:
@@ -1767,7 +1781,7 @@ async def admin():
 			state['images_at'] = 0.0
 		await db.commit()
 
-	return redirect('/admin#accounts' if action else '/admin')
+	return redirect('/admin#languages' if action == 'languages' else '/admin#accounts' if action else '/admin')
 
 
 @app.route('/captcha/<token>.svg')
@@ -1848,11 +1862,11 @@ async def index():
 	'''Home page with highlights.'''
 
 	year    = time.localtime().tm_year
-	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12")
+	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {hidden_sql()} ORDER BY votes DESC LIMIT 12")
 	today   = time.strftime('%Y-%m-%d')
 	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 12", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
-	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12", (year - 1,))
-	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12")
+	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {hidden_sql()} ORDER BY votes DESC LIMIT 12", (year - 1,))
+	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {hidden_sql()} ORDER BY votes DESC LIMIT 12")
 
 	return await render_template('index.html', popular=popular, recent=recent, series=series)
 
@@ -2771,7 +2785,7 @@ async def titles():
 	else:
 		where.append("type != 'tvEpisode'")
 
-	where.append(HIDDEN_SQL)
+	where.append(hidden_sql())
 
 	for genre in args.getlist('genre'):
 		if genre in GENRES:
