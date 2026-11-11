@@ -51,8 +51,8 @@ TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'new
 MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE user_id = {uid} AND kind = 'tt')"}
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
-HIDDEN_LANGS = ('hi', 'te', 'ta', 'ml', 'kn', 'pa', 'bn', 'mr')
-HIDDEN_SQL   = f"tconst NOT IN (SELECT tconst FROM u.title_language WHERE language IN ({','.join(repr(l) for l in HIDDEN_LANGS)}))"
+SHOWN_LANGS  = ('en', 'zh', 'cn', 'ja', 'es', 'fr', 'de', 'it', 'ko', 'ru', 'el')
+HIDDEN_SQL   = f"tconst NOT IN (SELECT tconst FROM u.title_language WHERE language NOT IN ({','.join(repr(l) for l in SHOWN_LANGS)}))"
 TOPIC_GENRES = {'kid': 'Family', 'kids': 'Family', 'children': 'Family', 'childrens': 'Family', 'family': 'Family', 'animated': 'Animation', 'animation': 'Animation', 'cartoon': 'Animation', 'cartoons': 'Animation', 'anime': 'Animation', 'scary': 'Horror', 'horror': 'Horror', 'funny': 'Comedy', 'comedy': 'Comedy', 'comedies': 'Comedy', 'romantic': 'Romance', 'romance': 'Romance', 'action': 'Action', 'adventure': 'Adventure', 'scifi': 'Sci-Fi', 'documentary': 'Documentary', 'documentaries': 'Documentary', 'thriller': 'Thriller', 'thrillers': 'Thriller', 'war': 'War', 'western': 'Western', 'westerns': 'Western', 'musical': 'Musical', 'musicals': 'Musical', 'mystery': 'Mystery', 'crime': 'Crime', 'drama': 'Drama', 'dramas': 'Drama', 'fantasy': 'Fantasy', 'sports': 'Sport', 'biopic': 'Biography', 'historical': 'History'}
 TOPIC_TYPES  = {'movie': ('movie', 'tvMovie'), 'movies': ('movie', 'tvMovie'), 'film': ('movie', 'tvMovie'), 'films': ('movie', 'tvMovie'), 'show': ('tvSeries', 'tvMiniSeries'), 'shows': ('tvSeries', 'tvMiniSeries'), 'series': ('tvSeries', 'tvMiniSeries'), 'tv': ('tvSeries', 'tvMiniSeries')}
 TOPIC_STOP   = {'a', 'an', 'the', 'and', 'or', 'of', 'for', 'with', 'about', 'to', 'in', 'on', 'best', 'good', 'top', 'great'}
@@ -813,7 +813,7 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 		async with user_db() as db:
 			watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
 
-	hidden     = {r['tconst'] for r in await query(f'SELECT tconst FROM u.title_language WHERE language IN ({",".join("?" * len(HIDDEN_LANGS))})', HIDDEN_LANGS)}
+	hidden     = {r['tconst'] for r in await query(f'SELECT tconst FROM u.title_language WHERE language NOT IN ({",".join("?" * len(SHOWN_LANGS))})', SHOWN_LANGS)}
 	candidates = [t for t in scores if t not in seeds and t not in watched and t not in hidden]
 	titles     = await titles_by_ids(candidates)
 	seed_rows  = await titles_by_ids(seed_ids)
