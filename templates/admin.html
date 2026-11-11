@@ -59,6 +59,17 @@
 		</form>
 	</section>
 
+	<section id="languages" class="{{ card }}">
+		<div class="px-5 py-4 border-b border-zinc-800"><h2 class="font-semibold">Languages</h2><p class="text-xs text-zinc-500">Checked languages are hidden from lists, search and recommendations, going by the title's original language on TMDB. Their pages still open from a direct link.</p></div>
+		<form action="/admin" method="post" class="px-5 py-4 text-sm">
+			<input type="hidden" name="action" value="languages">
+			<div class="grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-1 max-h-96 overflow-y-auto">
+				{% for l in langs %}<label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="hide" value="{{ l.language }}" {{ 'checked' if l.language not in shown }} class="accent-yellow-400"> <span class="truncate">{{ names.get(l.language, l.language) }}</span> <span class="ml-auto text-xs text-zinc-500 tabular-nums">{{ '{:,}'.format(l.n) }}</span></label>{% endfor %}
+			</div>
+			<div class="mt-4 flex justify-end"><button class="px-4 py-2 rounded-lg bg-accent hover:bg-accent-dim text-black text-sm font-semibold">Save</button></div>
+		</form>
+	</section>
+
 	<section id="accounts" class="{{ card }}">
 		<div class="px-5 py-4 border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
 			<div><h2 class="font-semibold">Accounts</h2><p class="text-xs text-zinc-500">{{ users | length }} total{% if pending %} · <span class="text-accent">{{ pending | length }} waiting for approval</span>{% endif %}</p></div>
