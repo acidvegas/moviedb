@@ -51,6 +51,8 @@ TITLE_SORTS  = {'votes': 'votes DESC', 'rating': 'rating DESC, votes DESC', 'new
 MINE_FILTERS = {'watched': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'unwatched': "tconst NOT IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watched')", 'watchlist': "tconst IN (SELECT tconst FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist')", 'rated': "tconst IN (SELECT id FROM u.ratings WHERE user_id = {uid} AND kind = 'tt')"}
 LB_TYPES     = ('movie', 'tvMovie', 'video', 'short', 'tvShort', 'tvSpecial', 'tvMiniSeries', 'tvSeries')
 REC_TYPES    = ('movie', 'tvMovie', 'tvSeries', 'tvMiniSeries')
+HIDDEN_LANGS = ('hi', 'te', 'ta', 'ml', 'kn', 'pa', 'bn', 'mr')
+HIDDEN_SQL   = f"tconst NOT IN (SELECT tconst FROM u.title_language WHERE language IN ({','.join(repr(l) for l in HIDDEN_LANGS)}))"
 TOPIC_GENRES = {'kid': 'Family', 'kids': 'Family', 'children': 'Family', 'childrens': 'Family', 'family': 'Family', 'animated': 'Animation', 'animation': 'Animation', 'cartoon': 'Animation', 'cartoons': 'Animation', 'anime': 'Animation', 'scary': 'Horror', 'horror': 'Horror', 'funny': 'Comedy', 'comedy': 'Comedy', 'comedies': 'Comedy', 'romantic': 'Romance', 'romance': 'Romance', 'action': 'Action', 'adventure': 'Adventure', 'scifi': 'Sci-Fi', 'documentary': 'Documentary', 'documentaries': 'Documentary', 'thriller': 'Thriller', 'thrillers': 'Thriller', 'war': 'War', 'western': 'Western', 'westerns': 'Western', 'musical': 'Musical', 'musicals': 'Musical', 'mystery': 'Mystery', 'crime': 'Crime', 'drama': 'Drama', 'dramas': 'Drama', 'fantasy': 'Fantasy', 'sports': 'Sport', 'biopic': 'Biography', 'historical': 'History'}
 TOPIC_TYPES  = {'movie': ('movie', 'tvMovie'), 'movies': ('movie', 'tvMovie'), 'film': ('movie', 'tvMovie'), 'films': ('movie', 'tvMovie'), 'show': ('tvSeries', 'tvMiniSeries'), 'shows': ('tvSeries', 'tvMiniSeries'), 'series': ('tvSeries', 'tvMiniSeries'), 'tv': ('tvSeries', 'tvMiniSeries')}
 TOPIC_STOP   = {'a', 'an', 'the', 'and', 'or', 'of', 'for', 'with', 'about', 'to', 'in', 'on', 'best', 'good', 'top', 'great'}
@@ -112,7 +114,8 @@ CREATE TABLE IF NOT EXISTS tmdb            (id TEXT PRIMARY KEY, data TEXT, fetc
 CREATE TABLE IF NOT EXISTS tmdb_ids        (kind TEXT, tmdb_id INTEGER, imdb_id TEXT, PRIMARY KEY (kind, tmdb_id));
 CREATE TABLE IF NOT EXISTS title_providers (tconst INTEGER, provider_id INTEGER, PRIMARY KEY (tconst, provider_id));
 CREATE TABLE IF NOT EXISTS title_keywords  (keyword TEXT, tconst INTEGER, PRIMARY KEY (keyword, tconst));
-CREATE TABLE IF NOT EXISTS title_released  (tconst INTEGER PRIMARY KEY, released TEXT, language TEXT);
+CREATE TABLE IF NOT EXISTS title_released  (tconst INTEGER PRIMARY KEY, released TEXT);
+CREATE TABLE IF NOT EXISTS title_language  (tconst INTEGER PRIMARY KEY, language TEXT);
 CREATE INDEX IF NOT EXISTS idx_title_released ON title_released (released);
 CREATE TABLE IF NOT EXISTS ratings         (user_id INTEGER, kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (user_id, kind, id));
 CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (user_id, tconst, mark));
@@ -667,6 +670,31 @@ def pref(name: str) -> bool:
 	return request.cookies.get(name, '1') != '0'
 
 
+async def language_backfill():
+	'''Fill title_language for TMDB data cached before the original language was saved (one light TMDB request per title).'''
+
+	if not (key := await setting('tmdb_key')):
+		return
+
+	async with user_db() as db:
+		rows = await db.execute_fetchall("SELECT id, json_extract(data, '$.kind') AS kind, json_extract(data, '$.tmdb_id') AS tmdb_id FROM tmdb WHERE id LIKE 'tt%' AND json_valid(data) AND json_extract(data, '$.kind') IN ('movie', 'tv') AND CAST(substr(id, 3) AS INTEGER) NOT IN (SELECT tconst FROM title_language)")
+
+	queue = asyncio.Queue()
+
+	for row in rows:
+		queue.put_nowait(row)
+
+	async def worker():
+		while not queue.empty():
+			row = queue.get_nowait()
+			if (d := await tmdb_request(f'{row["kind"]}/{row["tmdb_id"]}', key)) and d.get('original_language'):
+				async with user_db() as db:
+					await db.execute('INSERT OR REPLACE INTO title_language VALUES (?, ?)', (int(row['id'][2:]), d['original_language']))
+					await db.commit()
+
+	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
+
+
 async def precache():
 	'''Pre-download TMDB details and posters for the library plus the most popular titles and people.'''
 
@@ -785,7 +813,8 @@ async def recommend_titles(seeds: dict, limit: int = 60) -> list:
 		async with user_db() as db:
 			watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
 
-	candidates = [t for t in scores if t not in seeds and t not in watched]
+	hidden     = {r['tconst'] for r in await query(f'SELECT tconst FROM u.title_language WHERE language IN ({",".join("?" * len(HIDDEN_LANGS))})', HIDDEN_LANGS)}
+	candidates = [t for t in scores if t not in seeds and t not in watched and t not in hidden]
 	titles     = await titles_by_ids(candidates)
 	seed_rows  = await titles_by_ids(seed_ids)
 	ranked     = []
@@ -861,7 +890,7 @@ async def search_titles(fts: str, limit: int, episodes: bool = False, types: tup
 		sql = 'SELECT t.*, e.season, e.episode, p.primary_title AS parent_title, p.tconst AS parent FROM {0} f JOIN titles t ON t.tconst = f.rowid JOIN episodes e ON e.tconst = t.tconst LEFT JOIN titles p ON p.tconst = e.parent WHERE {0} MATCH ? ORDER BY t.votes DESC LIMIT ?'
 		tables = ('episodes_pop_fts', 'episodes_fts')
 	else:
-		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ?' + (f' AND t.type IN ({",".join("?" * len(types))})' if types else '') + ' ORDER BY t.votes DESC LIMIT ?'
+		sql    = 'SELECT t.* FROM {0} f JOIN titles t ON t.tconst = f.rowid WHERE {0} MATCH ? AND t.' + HIDDEN_SQL + (f' AND t.type IN ({",".join("?" * len(types))})' if types else '') + ' ORDER BY t.votes DESC LIMIT ?'
 		tables = ('titles_pop_fts', 'titles_fts')
 
 	rows = await query(sql.format(tables[0]), (fts, *types, limit))
@@ -1269,7 +1298,9 @@ async def tmdb_details(imdb_id: str, cached_only: bool = False) -> dict | None:
 			await db.executemany('INSERT OR IGNORE INTO title_keywords VALUES (?, ?)', [(k.lower(), int(imdb_id[2:])) for k in (fresh or {}).get('keywords', [])])
 			await db.execute('DELETE FROM title_released WHERE tconst = ?', (int(imdb_id[2:]),))
 			if (fresh or {}).get('release_date'):
-				await db.execute('INSERT INTO title_released VALUES (?, ?, ?)', (int(imdb_id[2:]), fresh['release_date'], next(iter(fresh.get('languages') or []), None)))
+				await db.execute('INSERT INTO title_released VALUES (?, ?)', (int(imdb_id[2:]), fresh['release_date']))
+			if (fresh or {}).get('original_language'):
+				await db.execute('INSERT OR REPLACE INTO title_language VALUES (?, ?)', (int(imdb_id[2:]), fresh['original_language']))
 		await db.commit()
 
 	return fresh
@@ -1302,6 +1333,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'revenue'       : d.get('revenue'),
 			'collection'    : (d.get('belongs_to_collection') or {}).get('name'),
 			'collection_id' : (d.get('belongs_to_collection') or {}).get('id'),
+			'original_language': d.get('original_language'),
 			'keywords'      : [k['name'] for k in d.get('keywords', {}).get('keywords', [])],
 			'cast'          : [{'id': c['id'], 'name': c['name'], 'character': c.get('character'), 'profile': c.get('profile_path')} for c in credits.get('cast', [])[:300]],
 			'crew'          : [{'id': c['id'], 'name': c['name'], 'job': c.get('job'), 'department': c.get('department'), 'profile': c.get('profile_path')} for c in credits.get('crew', [])[:300]]
@@ -1319,6 +1351,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'next_episode'  : f'S{next_ep["season_number"]}E{next_ep["episode_number"]} · {next_ep.get("name", "")} · {next_ep.get("air_date", "")}' if next_ep else None,
 			'certification' : next((r['rating'] for r in d.get('content_ratings', {}).get('results', []) if r['iso_3166_1'] == 'US'), None),
 			'networks'      : [n['name'] for n in d.get('networks', [])],
+			'original_language': d.get('original_language'),
 			'created_by'    : [c['name'] for c in d.get('created_by', [])],
 			'seasons'       : d.get('number_of_seasons'),
 			'episodes'      : d.get('number_of_episodes'),
@@ -1429,7 +1462,7 @@ async def topic_search(q: str, limit: int, types: tuple = ()) -> tuple:
 	if len(words) < 2 and not terms or not genres and not terms:
 		return [], ''
 
-	where  = [f'type IN ({",".join("?" * len(types))})']
+	where  = [f'type IN ({",".join("?" * len(types))})', HIDDEN_SQL]
 	params = list(types)
 
 	for genre in genres:
@@ -1539,7 +1572,7 @@ async def startup():
 		if not await db.execute_fetchall('SELECT 1 FROM title_keywords LIMIT 1'):
 			await db.execute("INSERT OR IGNORE INTO title_keywords SELECT lower(k.value), CAST(substr(t.id, 3) AS INTEGER) FROM tmdb t, json_each(t.data, '$.keywords') k WHERE t.id LIKE 'tt%' AND json_valid(t.data)")
 		if not await db.execute_fetchall('SELECT 1 FROM title_released LIMIT 1'):
-			await db.execute("INSERT OR IGNORE INTO title_released SELECT CAST(substr(id, 3) AS INTEGER), json_extract(data, '$.release_date'), json_extract(data, '$.languages[0]') FROM tmdb WHERE id LIKE 'tt%' AND json_valid(data) AND json_extract(data, '$.release_date') != ''")
+			await db.execute("INSERT OR IGNORE INTO title_released SELECT CAST(substr(id, 3) AS INTEGER), json_extract(data, '$.release_date') FROM tmdb WHERE id LIKE 'tt%' AND json_valid(data) AND json_extract(data, '$.release_date') != ''")
 		await db.execute("INSERT OR IGNORE INTO users (id, name, admin, approved, created) VALUES (1, 'admin', 1, 1, ?)", (time.time(),))
 		await migrate_users(db)
 		admin = (await db.execute_fetchall('SELECT password FROM users WHERE id = 1'))[0]['password']
@@ -1559,6 +1592,7 @@ async def startup():
 	state['scheduler'] = asyncio.create_task(scheduler())
 	state['images_at'] = time.time()
 	spawn(image_usage())
+	spawn(language_backfill())
 
 
 @app.before_request
@@ -1728,6 +1762,7 @@ async def admin():
 			await db.execute('DELETE FROM title_providers')
 			await db.execute('DELETE FROM title_keywords')
 			await db.execute('DELETE FROM title_released')
+			await db.execute('DELETE FROM title_language')
 			shutil.rmtree(IMAGE_DIR, ignore_errors=True)
 			state['images_at'] = 0.0
 		await db.commit()
@@ -1813,11 +1848,11 @@ async def index():
 	'''Home page with highlights.'''
 
 	year    = time.localtime().tm_year
-	popular = await query("SELECT * FROM titles WHERE type = 'movie' ORDER BY votes DESC LIMIT 12")
+	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12")
 	today   = time.strftime('%Y-%m-%d')
-	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND r.language = 'English' AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 12", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
-	recent  = recent or await query("SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? ORDER BY votes DESC LIMIT 12", (year - 1,))
-	series  = await query("SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') ORDER BY votes DESC LIMIT 12")
+	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 12", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
+	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12", (year - 1,))
+	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {HIDDEN_SQL} ORDER BY votes DESC LIMIT 12")
 
 	return await render_template('index.html', popular=popular, recent=recent, series=series)
 
@@ -2735,6 +2770,8 @@ async def titles():
 		params.append(args['type'])
 	else:
 		where.append("type != 'tvEpisode'")
+
+	where.append(HIDDEN_SQL)
 
 	for genre in args.getlist('genre'):
 		if genre in GENRES:
