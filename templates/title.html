@@ -32,7 +32,7 @@
 			{% if directors %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Director{{ 's' if directors | length > 1 }}</dt><dd>{% for p in directors[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if directors | length > 12 %} +{{ directors | length - 12 }} more{% endif %}</dd></div>{% endif %}
 			{% if writers %}<div class="flex gap-2"><dt class="w-20 text-zinc-500 shrink-0">Writer{{ 's' if writers | length > 1 }}</dt><dd>{% for p in writers[:12] %}<a href="/name/{{ fmt_id('nm', p.nconst) }}" class="hover:text-accent">{{ p.name }}</a>{{ ', ' if not loop.last }}{% endfor %}{% if writers | length > 12 %} +{{ writers | length - 12 }} more{% endif %}</dd></div>{% endif %}
 		</dl>
-		{% if user %}<div class="mt-4 flex flex-wrap items-center gap-2">{% with tconst = t.tconst %}{% include '_marks.html' %}{% endwith %}<div id="lists-{{ t.tconst }}">{{ lists_html | safe }}</div></div>{% endif %}
+		<div class="mt-4 flex flex-wrap items-center gap-2">{% if user %}{% with tconst = t.tconst %}{% include '_marks.html' %}{% endwith %}<div id="lists-{{ t.tconst }}">{{ lists_html | safe }}</div>{% endif %}<button type="button" data-title="{{ t.primary_title }}" onclick="sharePage(this.dataset.title)" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold bg-zinc-800 hover:bg-zinc-700"><svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" viewBox="0 0 24 24"><path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>Share</button></div>
 		<div hx-get="/title/{{ tid }}/tmdb" hx-trigger="load" hx-swap="outerHTML"></div>
 		<div id="watch"></div>
 	</div>

@@ -12,6 +12,15 @@ function remember(name, on) {
 	document.cookie = `${name}=${on ? 1 : 0}; path=/; max-age=31536000; samesite=lax`;
 }
 
+// Share the current page with the system share sheet, or copy its link where there is none (desktop browsers)
+function sharePage(title) {
+	const url = location.href.split('#')[0];
+	if (navigator.share)
+		navigator.share({title, url}).catch(() => {});
+	else
+		copyText(url, 'Link copied');
+}
+
 // Copy text to the clipboard (execCommand, since navigator.clipboard needs HTTPS)
 function copyText(text, message) {
 	const el = document.createElement('textarea');
