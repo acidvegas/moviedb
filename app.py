@@ -681,6 +681,32 @@ def pref(name: str) -> bool:
 	return request.cookies.get(name, '1') != '0'
 
 
+def toggle(name: str, default: bool) -> bool:
+	'''
+	Read an on/off checkbox: the request value wins (a hidden "0" input sits before the checkbox), else the cookie set by remember() in utils.js, else the default.
+
+	:param name: Checkbox and cookie name
+	:param default: Value when neither is set
+	'''
+
+	if name in request.args:
+		return request.args.getlist(name)[-1] != '0'
+
+	return request.cookies.get(name, '1' if default else '0') != '0'
+
+
+async def with_posters(items: list) -> list:
+	'''
+	Drop titles that have no poster.
+
+	:param items: Title rows
+	'''
+
+	found = await asyncio.gather(*(ensure_poster(fmt_id('tt', t['tconst'])) for t in items))
+
+	return [t for t, path in zip(items, found) if path]
+
+
 async def language_backfill():
 	'''Fill title_language for TMDB data cached before the original language was saved (one light TMDB request per title).'''
 
@@ -1873,13 +1899,16 @@ async def index():
 	'''Home page with highlights.'''
 
 	year    = time.localtime().tm_year
-	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {hidden_sql()} ORDER BY votes DESC LIMIT 12")
+	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {hidden_sql()} ORDER BY votes DESC LIMIT 24")
 	today   = time.strftime('%Y-%m-%d')
-	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 12", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
-	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {hidden_sql()} ORDER BY votes DESC LIMIT 12", (year - 1,))
-	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {hidden_sql()} ORDER BY votes DESC LIMIT 12")
+	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 24", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
+	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {hidden_sql()} ORDER BY votes DESC LIMIT 24", (year - 1,))
+	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {hidden_sql()} ORDER BY votes DESC LIMIT 24")
 
-	return await render_template('index.html', popular=popular, recent=recent, series=series)
+	if pref('noimg'):
+		popular, recent, series = await asyncio.gather(with_posters(popular), with_posters(recent), with_posters(series))
+
+	return await render_template('index.html', popular=popular[:12], recent=recent[:12], series=series[:12])
 
 
 @app.route('/letterboxd/fix', methods=['GET', 'POST'])
@@ -2495,9 +2524,10 @@ async def search():
 	full  = 'HX-Request' not in request.headers or request.headers.get('HX-Boosted')
 	kind  = request.args.get('kind', 'all') if full else 'all'
 	noimg = full and (request.args.getlist('noimg')[-1] != '0' if 'noimg' in request.args else pref('noimg'))
+	nowat = full and bool(g.user) and toggle('nowatched', False)
 
 	if not fts:
-		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[], kind=kind, noimg=noimg)
+		return await render_template('search.html' if full else '_quick.html', q=q, titles=[], people=[], episodes=[], kind=kind, noimg=noimg, nowatched=nowat)
 
 	limit    = 30 if full else 6
 	types    = {'movies': ('movie', 'tvMovie'), 'tv': ('tvSeries', 'tvMiniSeries')}.get(kind, ())
@@ -2506,13 +2536,18 @@ async def search():
 	episodes = await search_titles(fts, limit, episodes=True) if full and kind in ('all', 'tv') else []
 	topics, topic = await topic_search(q, 30, types) if full and kind != 'people' else ([], '')
 
+	if nowat:
+		async with user_db() as db:
+			watched = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watched'", (g.user['id'],))}
+		titles, topics, episodes = ([t for t in rows if t['tconst'] not in watched] for rows in (titles, topics, episodes))
+
 	if noimg:
 		found  = await asyncio.gather(*(ensure_poster(fmt_id('tt', t['tconst'])) for t in titles + topics), *(ensure_poster(fmt_id('nm', p['nconst'])) for p in people))
 		people = [p for p, path in zip(people, found[len(titles) + len(topics):]) if path]
 		topics = [t for t, path in zip(topics, found[len(titles):]) if path]
 		titles = [t for t, path in zip(titles, found) if path]
 
-	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, topics=topics, topic=topic, kind=kind, noimg=noimg)
+	return await render_template('search.html' if full else '_quick.html', q=q, titles=titles, people=people, episodes=episodes, topics=topics, topic=topic, kind=kind, noimg=noimg, nowatched=nowat)
 
 
 @app.route('/settings', methods=['GET', 'POST'])
@@ -2818,6 +2853,9 @@ async def titles():
 	if g.user and args.get('mine') in MINE_FILTERS:
 		where.append(MINE_FILTERS[args['mine']].format(uid=g.user['id']))
 
+	if nowatched := bool(g.user) and toggle('nowatched', False):
+		where.append(MINE_FILTERS['unwatched'].format(uid=g.user['id']))
+
 	if sort == 'mine':
 		where.append(MINE_FILTERS['rated'].format(uid=g.user['id']))
 
@@ -2828,7 +2866,10 @@ async def titles():
 	sql  = f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY {TITLE_SORTS.get(sort, TITLE_SORTS["votes"]).format(uid=g.user["id"] if g.user else 0)} LIMIT ? OFFSET ?'
 	rows = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
 
-	return await render_template('titles.html', titles=rows[:PAGE_SIZE], has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES)
+	noimg  = toggle('noimg', True)
+	shown  = await with_posters(rows[:PAGE_SIZE]) if noimg else rows[:PAGE_SIZE]
+
+	return await render_template('titles.html', titles=shown, has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES, noimg=noimg, nowatched=nowatched)
 
 
 @app.route('/upcoming')
