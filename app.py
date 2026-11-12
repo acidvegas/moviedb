@@ -755,7 +755,10 @@ async def tmdb_refresh():
 
 	async def worker():
 		while not queue.empty():
-			await tmdb_details(queue.get_nowait())
+			try:
+				await tmdb_details(queue.get_nowait())
+			except sqlite3.OperationalError:
+				pass
 			job['done'] += 1
 
 	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
