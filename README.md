@@ -96,7 +96,7 @@ Everything else is set in the web interface: per-account options under **Setting
 | `templates/`         | Page templates                                                    |
 | `static/`            | CSS, JS, icons and bundled front-end libraries                    |
 
-Back up `user.db`. Everything else can be rebuilt.
+Back up `user.db`. Everything else can be rebuilt. A copy of the account data in it *(everything except caches)* is saved daily to `data/backups/`, keeping the last 7 days.
 
 ## Data sources
 
