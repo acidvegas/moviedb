@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS title_providers (tconst INTEGER, provider_id INTEGER,
 CREATE TABLE IF NOT EXISTS title_keywords  (keyword TEXT, tconst INTEGER, PRIMARY KEY (keyword, tconst));
 CREATE TABLE IF NOT EXISTS title_released  (tconst INTEGER PRIMARY KEY, released TEXT);
 CREATE TABLE IF NOT EXISTS title_language  (tconst INTEGER PRIMARY KEY, language TEXT);
+CREATE TABLE IF NOT EXISTS title_tmdb      (tconst INTEGER PRIMARY KEY, rating REAL, votes INTEGER, popularity REAL);
 CREATE INDEX IF NOT EXISTS idx_title_released ON title_released (released);
 CREATE TABLE IF NOT EXISTS ratings         (user_id INTEGER, kind TEXT, id INTEGER, rating INTEGER, updated REAL, PRIMARY KEY (user_id, kind, id));
 CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mark TEXT, added REAL, PRIMARY KEY (user_id, tconst, mark));
@@ -127,7 +128,7 @@ CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEX
 '''
 
 app        = Quart(__name__, static_folder='static', template_folder='templates')
-state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None, 'os_tokens': {}, 'captchas': {}}
+state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None, 'os_tokens': {}, 'captchas': {}, 'tmdb_scores': {}}
 poster_sem = asyncio.Semaphore(4)
 tasks      = set()
 
@@ -728,6 +729,29 @@ async def language_backfill():
 				async with user_db() as db:
 					await db.execute('INSERT OR REPLACE INTO title_language VALUES (?, ?)', (int(row['id'][2:]), d['original_language']))
 					await db.commit()
+
+	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
+
+
+async def tmdb_refresh():
+	'''Re-fetch cached titles saved before ratings, popularity, release dates, rent/buy, logos and reviews were kept (two TMDB requests per title).'''
+
+	if not await setting('tmdb_key'):
+		return
+
+	async with user_db() as db:
+		ids = [r['id'] for r in await db.execute_fetchall("SELECT id FROM tmdb WHERE id LIKE 'tt%' AND data IS NOT NULL AND json_valid(data) AND json_type(data, '$.vote_count') IS NULL")]
+		await db.executemany('UPDATE tmdb SET fetched = 0 WHERE id = ?', [(i,) for i in ids])
+		await db.commit()
+
+	queue = asyncio.Queue()
+
+	for imdb_id in ids:
+		queue.put_nowait(imdb_id)
+
+	async def worker():
+		while not queue.empty():
+			await tmdb_details(queue.get_nowait())
 
 	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
 
@@ -1344,6 +1368,10 @@ async def tmdb_details(imdb_id: str, cached_only: bool = False) -> dict | None:
 				await db.execute('INSERT INTO title_released VALUES (?, ?)', (int(imdb_id[2:]), fresh['release_date']))
 			if (fresh or {}).get('original_language'):
 				await db.execute('INSERT OR REPLACE INTO title_language VALUES (?, ?)', (int(imdb_id[2:]), fresh['original_language']))
+			if (fresh or {}).get('vote_count') is not None:
+				await db.execute('INSERT OR REPLACE INTO title_tmdb VALUES (?, ?, ?, ?)', (int(imdb_id[2:]), fresh['vote_average'], fresh['vote_count'], fresh.get('popularity')))
+				if fresh['vote_count']:
+					state['tmdb_scores'][int(imdb_id[2:])] = (fresh['vote_average'], fresh['vote_count'])
 		await db.commit()
 
 	return fresh
@@ -1363,7 +1391,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 		return False
 
 	if item := next(iter(found.get('movie_results', [])), None):
-		if (d := await tmdb_request(f'movie/{item["id"]}', key, {'append_to_response': 'videos,release_dates,keywords,credits,watch/providers,recommendations'})) is None:
+		if (d := await tmdb_request(f'movie/{item["id"]}', key, {'append_to_response': 'videos,release_dates,keywords,credits,watch/providers,recommendations,images,reviews', 'include_image_language': 'en,null'})) is None:
 			return False
 		us      = next((r['release_dates'] for r in d.get('release_dates', {}).get('results', []) if r['iso_3166_1'] == 'US'), [])
 		credits = d.get('credits', {})
@@ -1377,12 +1405,16 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'collection'    : (d.get('belongs_to_collection') or {}).get('name'),
 			'collection_id' : (d.get('belongs_to_collection') or {}).get('id'),
 			'original_language': d.get('original_language'),
+			'origin_country': d.get('origin_country', []),
+			'theatrical_release': min((r['release_date'][:10] for r in us if r.get('type') in (2, 3)), default=None),
+			'digital_release'   : min((r['release_date'][:10] for r in us if r.get('type') == 4), default=None),
+			'physical_release'  : min((r['release_date'][:10] for r in us if r.get('type') == 5), default=None),
 			'keywords'      : [k['name'] for k in d.get('keywords', {}).get('keywords', [])],
 			'cast'          : [{'id': c['id'], 'name': c['name'], 'character': c.get('character'), 'profile': c.get('profile_path')} for c in credits.get('cast', [])[:300]],
 			'crew'          : [{'id': c['id'], 'name': c['name'], 'job': c.get('job'), 'department': c.get('department'), 'profile': c.get('profile_path')} for c in credits.get('crew', [])[:300]]
 		}
 	elif item := next(iter(found.get('tv_results', [])), None):
-		if (d := await tmdb_request(f'tv/{item["id"]}', key, {'append_to_response': 'videos,content_ratings,keywords,aggregate_credits,watch/providers,recommendations'})) is None:
+		if (d := await tmdb_request(f'tv/{item["id"]}', key, {'append_to_response': 'videos,content_ratings,keywords,aggregate_credits,watch/providers,recommendations,images,reviews', 'include_image_language': 'en,null'})) is None:
 			return False
 		next_ep = d.get('next_episode_to_air') or {}
 		credits = d.get('aggregate_credits', {})
@@ -1395,6 +1427,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'certification' : next((r['rating'] for r in d.get('content_ratings', {}).get('results', []) if r['iso_3166_1'] == 'US'), None),
 			'networks'      : [n['name'] for n in d.get('networks', [])],
 			'original_language': d.get('original_language'),
+			'origin_country': d.get('origin_country', []),
 			'created_by'    : [c['name'] for c in d.get('created_by', [])],
 			'seasons'       : d.get('number_of_seasons'),
 			'episodes'      : d.get('number_of_episodes'),
@@ -1404,7 +1437,7 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 		}
 	elif item := next(iter(found.get('tv_episode_results', [])), None):
 		d    = item
-		data = {'kind': 'episode', 'url': f'https://www.themoviedb.org/tv/{item["show_id"]}/season/{item["season_number"]}/episode/{item["episode_number"]}', 'air_date': item.get('air_date'), 'poster_path': item.get('still_path')}
+		data = {'kind': 'episode', 'url': f'https://www.themoviedb.org/tv/{item["show_id"]}/season/{item["season_number"]}/episode/{item["episode_number"]}', 'air_date': item.get('air_date'), 'poster_path': item.get('still_path'), 'vote_average': item.get('vote_average'), 'vote_count': item.get('vote_count')}
 	elif item := next(iter(found.get('person_results', [])), None):
 		if (d := await tmdb_request(f'person/{item["id"]}', key)) is None:
 			return False
@@ -1428,11 +1461,13 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 		videos    = [v for v in d.get('videos', {}).get('results', []) if v['site'] == 'YouTube' and v['type'] in ('Trailer', 'Teaser')]
 		watch     = d.get('watch/providers', {}).get('results', {}).get('US', {})
 		providers = {}
+		paid      = {'rent': {}, 'buy': {}}
+		logos     = d.get('images', {}).get('logos', [])
 		videos.sort(key=lambda v: (v['type'] != 'Trailer', not v.get('official')))
 
-		for kind in ('flatrate', 'free', 'ads'):
+		for kind in ('flatrate', 'free', 'ads', 'rent', 'buy'):
 			for p in watch.get(kind, []):
-				providers.setdefault(p['provider_id'], {'id': p['provider_id'], 'name': p['provider_name'], 'logo': p.get('logo_path'), 'type': kind})
+				paid.get(kind, providers).setdefault(p['provider_id'], {'id': p['provider_id'], 'name': p['provider_name'], 'logo': p.get('logo_path'), 'type': kind})
 
 		data |= {
 			'overview'      : d.get('overview'),
@@ -1447,6 +1482,13 @@ async def tmdb_fetch(imdb_id: str, key: str) -> dict | None | bool:
 			'companies'     : [c['name'] for c in d.get('production_companies', [])],
 			'providers'     : list(providers.values()),
 			'providers_link': watch.get('link'),
+			'providers_rent': list(paid['rent'].values()),
+			'providers_buy' : list(paid['buy'].values()),
+			'vote_average'  : d.get('vote_average'),
+			'vote_count'    : d.get('vote_count'),
+			'popularity'    : d.get('popularity'),
+			'logo_path'     : next((l['file_path'] for l in logos if l.get('iso_639_1') == 'en'), logos[0]['file_path'] if logos else None),
+			'reviews'       : [{'author': r.get('author'), 'rating': (r.get('author_details') or {}).get('rating'), 'date': (r.get('created_at') or '')[:10], 'url': r.get('url'), 'content': (r.get('content') or '')[:4000]} for r in d.get('reviews', {}).get('results', [])[:10]],
 			'recs'          : [{'id': r['id'], 'kind': r.get('media_type', data['kind']), 'title': r.get('title') or r.get('name') or '', 'year': (r.get('release_date') or r.get('first_air_date') or '')[:4]} for r in d.get('recommendations', {}).get('results', [])]
 		}
 
@@ -1632,11 +1674,14 @@ async def startup():
 
 	state['session']   = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=15), headers={'User-Agent': USER_AGENT})
 	state['tmdb_lock'] = asyncio.Lock()
+	async with user_db() as db:
+		state['tmdb_scores'] = {r['tconst']: (r['rating'], r['votes']) for r in await db.execute_fetchall('SELECT tconst, rating, votes FROM title_tmdb WHERE votes > 0')}
 	state['shown_langs'] = tuple(re.findall(r'[a-z]{2,3}', await setting('shown_langs', ','.join(SHOWN_LANGS))))
 	state['scheduler'] = asyncio.create_task(scheduler())
 	state['images_at'] = time.time()
 	spawn(image_usage())
 	spawn(language_backfill())
+	spawn(tmdb_refresh())
 
 
 @app.before_request
@@ -1676,15 +1721,22 @@ def inject():
 async def inject_mine():
 	'''Expose the logged-in account's marks, ratings, follows, and streaming providers to all templates (all empty for guests).'''
 
+	def imdb_score(tconst: int, rating: float, votes: int) -> tuple | None:
+		return (rating, votes) if rating else None
+
 	if not g.get('user'):
-		return {'mine': {'watched': set(), 'watchlist': set(), 'tt': {}, 'nm': {}, 'follows': set(), 'providers': set()}}
+		return {'mine': {'watched': set(), 'watchlist': set(), 'tt': {}, 'nm': {}, 'follows': set(), 'providers': set()}, 'score': imdb_score}
 
 	async with user_db() as db:
 		marks   = await db.execute_fetchall('SELECT tconst, mark FROM marks WHERE user_id = ?', (g.user['id'],))
 		ratings = await db.execute_fetchall('SELECT kind, id, rating FROM ratings WHERE user_id = ?', (g.user['id'],))
 		follows = await db.execute_fetchall('SELECT nconst FROM follows WHERE user_id = ?', (g.user['id'],))
+		source  = await db.execute_fetchall("SELECT value FROM user_settings WHERE user_id = ? AND key = 'rating_source'", (g.user['id'],))
 
-	return {'mine': {'watched': {m['tconst'] for m in marks if m['mark'] == 'watched'}, 'watchlist': {m['tconst'] for m in marks if m['mark'] == 'watchlist'}, 'tt': {r['id']: r['rating'] for r in ratings if r['kind'] == 'tt'}, 'nm': {r['id']: r['rating'] for r in ratings if r['kind'] == 'nm'}, 'follows': {f['nconst'] for f in follows}, 'providers': set(await my_providers())}}
+	def tmdb_score(tconst: int, rating: float, votes: int) -> tuple | None:
+		return state['tmdb_scores'].get(tconst) or imdb_score(tconst, rating, votes)
+
+	return {'score': tmdb_score if source and source[0]['value'] == 'tmdb' else imdb_score, 'mine': {'watched': {m['tconst'] for m in marks if m['mark'] == 'watched'}, 'watchlist': {m['tconst'] for m in marks if m['mark'] == 'watchlist'}, 'tt': {r['id']: r['rating'] for r in ratings if r['kind'] == 'tt'}, 'nm': {r['id']: r['rating'] for r in ratings if r['kind'] == 'nm'}, 'follows': {f['nconst'] for f in follows}, 'providers': set(await my_providers())}}
 
 
 @app.template_filter('datetime')
@@ -2563,6 +2615,8 @@ async def settings():
 		async with user_db() as db:
 			if 'letterboxd_user' in form:
 				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'letterboxd_user', form['letterboxd_user'].strip()))
+			if form.get('rating_source') in ('imdb', 'tmdb'):
+				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'rating_source', form['rating_source']))
 			if form.get('providers_form'):
 				await db.execute('INSERT OR REPLACE INTO user_settings VALUES (?, ?, ?)', (uid, 'providers', json.dumps([int(p) for p in form.getlist('provider')])))
 			if 'subdl_key' in form:
@@ -2582,7 +2636,7 @@ async def settings():
 	providers = await tmdb_cached('providers:US', 'watch/providers/movie', 30 * 86400, {'watch_region': 'US'})
 	providers = sorted((providers or {}).get('results', []), key=lambda p: p.get('display_priorities', {}).get('US', 999))
 	subs      = dict(keys[0]) if keys else {'subdl_key': '', 'os_key': '', 'os_user': '', 'os_pass': ''}
-	page      = {'letterboxd_user': await user_setting('letterboxd_user'), 'providers': providers, 'selected': set(await my_providers()), 'subs': subs, 'account': request.args.get('account'), 'bm_url': await user_setting('bm_url'), 'bm_error': request.args.get('bm') == 'invalid'}
+	page      = {'letterboxd_user': await user_setting('letterboxd_user'), 'providers': providers, 'selected': set(await my_providers()), 'subs': subs, 'account': request.args.get('account'), 'bm_url': await user_setting('bm_url'), 'rating_source': await user_setting('rating_source', 'imdb'), 'bm_error': request.args.get('bm') == 'invalid'}
 
 	if g.user['admin']:
 		subs['files'] = sum(1 for _ in SUBS_DIR.rglob('*.srt')) if SUBS_DIR.exists() else 0
@@ -2839,7 +2893,9 @@ async def titles():
 			where.append("(',' || genres || ',') LIKE ?")
 			params.append(f'%,{genre},%')
 
-	for field, column, op in (('year_from', 'start_year', '>='), ('year_to', 'start_year', '<='), ('rating', 'rating', '>='), ('votes', 'votes', '>=')):
+	score = "coalesce((SELECT s.rating FROM u.title_tmdb s WHERE s.tconst = titles.tconst AND s.votes > 0), rating)" if g.user and await user_setting('rating_source') == 'tmdb' else 'rating'
+
+	for field, column, op in (('year_from', 'start_year', '>='), ('year_to', 'start_year', '<='), ('rating', score, '>='), ('votes', 'votes', '>=')):
 		if value := args.get(field, type=float):
 			where.append(f'{column} {op} ?')
 			params.append(value)
@@ -2864,7 +2920,7 @@ async def titles():
 		where.append(f'tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))')
 		params.extend(services)
 
-	sql  = f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY {TITLE_SORTS.get(sort, TITLE_SORTS["votes"]).format(uid=g.user["id"] if g.user else 0)} LIMIT ? OFFSET ?'
+	sql  = f'SELECT * FROM titles WHERE {" AND ".join(where)} ORDER BY {f"{score} DESC, votes DESC" if sort == "rating" else TITLE_SORTS.get(sort, TITLE_SORTS["votes"]).format(uid=g.user["id"] if g.user else 0)} LIMIT ? OFFSET ?'
 	rows = await query(sql, params + [PAGE_SIZE + 1, (page - 1) * PAGE_SIZE])
 
 	noimg  = toggle('noimg', True)

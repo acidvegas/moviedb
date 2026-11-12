@@ -125,6 +125,14 @@
 	</section>
 
 	<section class="{{ card }}">
+		<div class="px-5 py-4 border-b border-zinc-800"><h2 class="font-semibold">Ratings</h2><p class="text-xs text-zinc-500">Which site's star rating to show, sort and filter by</p></div>
+		<form action="/settings" method="post" class="px-5 py-4 flex flex-wrap items-center gap-x-6 gap-y-3 text-sm">
+			{% for value, name in (('imdb', 'IMDb'), ('tmdb', 'TMDB')) %}<label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="rating_source" value="{{ value }}" {{ 'checked' if rating_source == value }} onchange="this.form.requestSubmit()" class="accent-yellow-400"> {{ name }}</label>{% endfor %}
+			<p class="w-full text-xs text-zinc-500">TMDB ratings exist only for titles with cached TMDB data (the popular ones); everything else shows its IMDb rating.</p>
+		</form>
+	</section>
+
+	<section class="{{ card }}">
 		<div class="{{ head }}">
 			<div><h2 class="font-semibold">Torrents</h2><p class="text-xs text-zinc-500">Top torrents on each title page from a bitmagnet server (Torznab API)</p></div>
 			<span class="text-xs px-2.5 py-1 rounded-full {{ 'bg-emerald-500/15 text-emerald-400' if bm_url else 'bg-zinc-800 text-zinc-400' }}">{{ 'Your server' if bm_url else 'Shared server' }}</span>
