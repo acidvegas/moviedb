@@ -5,7 +5,7 @@
 	{% for t in titles %}
 	<a href="/title/{{ fmt_id('tt', t.tconst) }}" class="flex items-center gap-3 px-3 py-2 hover:bg-zinc-800">
 		<div class="w-8 h-12 rounded overflow-hidden bg-zinc-800 shrink-0">{{ poster(fmt_id('tt', t.tconst), 'w-full h-full object-cover') }}</div>
-		<div class="min-w-0"><div class="text-sm truncate">{{ t.primary_title }}</div><div class="text-xs text-zinc-500">{{ years(t) }} · {{ type_label(t.type) }}{% if t.rating %} · ★ {{ t.rating }}{% endif %}</div></div>
+		<div class="min-w-0"><div class="text-sm truncate">{{ t.primary_title }}</div><div class="text-xs text-zinc-500">{{ years(t) }} · {{ type_label(t.type) }}{% set s = score(t.tconst, t.rating, t.votes) %}{% if s %} · ★ {{ '%.1f'|format(s[0]) }}{% endif %}</div></div>
 	</a>
 	{% endfor %}
 	{% if people %}<div class="px-3 pt-2 pb-1 text-[11px] uppercase tracking-wider text-zinc-500">People</div>{% endif %}
