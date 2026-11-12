@@ -33,6 +33,10 @@
 			</div>
 		</div>
 		<div class="{{ row }}">
+			<div class="{{ label }}">Backfill</div>
+			<div hx-get="/admin/backfill" hx-trigger="load" hx-swap="innerHTML"><div></div></div>
+		</div>
+		<div class="{{ row }}">
 			<div class="{{ label }}">Cache</div>
 			<div class="flex flex-wrap items-center gap-2">
 				<span class="px-2.5 py-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs"><span class="text-zinc-500">Details</span> <span class="tabular-nums">{{ '{:,}'.format(tmdb_n) }}</span></span>

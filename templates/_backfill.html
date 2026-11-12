@@ -1,0 +1,15 @@
+<!-- templates - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- _backfill.html -->
+
+<div class="rounded-xl border border-zinc-800 bg-zinc-900 p-4 text-sm space-y-3" {% if jobs %}hx-get="/admin/backfill" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+	{% for job in jobs %}
+	<div>
+		<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-accent animate-pulse"></span><span class="font-medium">{{ job.name }}</span></div>
+		<div class="mt-2 h-1.5 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full bg-accent" style="width: {{ (job.done / job.total * 100) | round(1) if job.total else 0 }}%"></div></div>
+		{% set left = (job.total - job.done) / job.rate if job.rate else 0 %}
+		<div class="mt-1 text-xs text-zinc-500 tabular-nums">{{ '{:,}'.format(job.done) }} / {{ '{:,}'.format(job.total) }} · {{ (job.done / job.total * 100) | round(1) if job.total else 0 }}% · {{ '%.1f' | format(job.rate) }}/s{% if job.rate and job.done %} · ~{% if left >= 3600 %}{{ (left // 3600) | int }}h {% endif %}{{ ((left % 3600) // 60) | int }}m left{% endif %}</div>
+	</div>
+	{% else %}
+	<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="font-medium">Idle, nothing to backfill</span></div>
+	{% endfor %}
+</div>
