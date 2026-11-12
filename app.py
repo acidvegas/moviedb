@@ -2856,6 +2856,10 @@ async def titles():
 	if sort == 'mine':
 		where.append(MINE_FILTERS['rated'].format(uid=g.user['id']))
 
+	if released := toggle('released', True):
+		where.append('start_year <= ? AND tconst NOT IN (SELECT tconst FROM u.title_released WHERE released > ?)')
+		params.extend([time.localtime().tm_year, time.strftime('%Y-%m-%d')])
+
 	if args.get('services') == '1' and (services := await my_providers()):
 		where.append(f'tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))')
 		params.extend(services)
@@ -2866,7 +2870,7 @@ async def titles():
 	noimg  = toggle('noimg', True)
 	shown  = await with_posters(rows[:PAGE_SIZE]) if noimg else rows[:PAGE_SIZE]
 
-	return await render_template('titles.html', titles=shown, has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES, noimg=noimg)
+	return await render_template('titles.html', titles=shown, has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES, noimg=noimg, released=released)
 
 
 @app.route('/upcoming')
