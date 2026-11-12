@@ -363,7 +363,7 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 	:param user_id: Account id
 	:param source: 'export' or 'sync', recorded in the result
 	:param watched: List of (key, name, rating) watched films
-	:param watchlist: List of (key, name, rating) watchlist films
+	:param watchlist: List of (key, name, rating) watchlist films, newest first
 	:param rated: List of (key, name, rating) rated films
 	:param mirror_watched: Replace all watched marks instead of adding to them
 	'''
@@ -383,7 +383,7 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 	async with user_db() as db:
 		await db.execute("DELETE FROM marks WHERE user_id = ? AND (mark = 'watchlist'" + (" OR mark = 'watched')" if mirror_watched else ')'), (user_id,))
 		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key)])
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watchlist', now) for key, _, _ in watchlist if mapping.get(key)])
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watchlist', now - i) for i, (key, _, _) in enumerate(watchlist) if mapping.get(key)])
 		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', ratings)
 		if source == 'export':
 			await db.execute('DELETE FROM lb_unmatched WHERE user_id = ?', (user_id,))
@@ -409,7 +409,7 @@ async def letterboxd_import(user_id: int, data: bytes):
 				if name not in archive.namelist():
 					raise RuntimeError(f'{name} not found in export zip')
 				rows = csv.DictReader(io.TextIOWrapper(archive.open(name), encoding='utf-8'))
-				return [(row['Letterboxd URI'], f"{row['Name']} ({row['Year']})" if row.get('Year') else row['Name'], round(float(row['Rating']) * 2) if row.get('Rating') else None) for row in rows]
+				return [(row['Letterboxd URI'], f"{row['Name']} ({row['Year']})" if row.get('Year') else row['Name'], round(float(row['Rating']) * 2) if row.get('Rating') else None) for row in sorted(rows, key=lambda row: row.get('Date', ''), reverse=True)]
 
 			watched, watchlist, rated = read('watched.csv'), read('watchlist.csv'), read('ratings.csv')
 
