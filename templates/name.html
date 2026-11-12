@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import grid, years, rating, type_label, poster with context %}
+{% from '_macros.html' import grid, card, years, poster with context %}
 {% set nid = fmt_id('nm', person.nconst) %}
 {% block title %}{{ person.name }}{% endblock %}
 {% block description %}{{ (person.professions or '').replace('_', ' ').replace(',', ', ') | capitalize }}{% if person.birth_year %} · Born {{ person.birth_year }}{% endif %}{% if known %} · Known for {{ known[:3] | map(attribute='primary_title') | join(', ') }}{% endif %}{% endblock %}
@@ -27,16 +27,12 @@
 		<input x-model="q" @input="page = 1" placeholder="Filter…" class="ml-auto rounded-md bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-accent">
 	</div>
 	{% for cat, rows in groups %}
-	<div x-show="tab == '{{ cat }}'" class="divide-y divide-zinc-800/70 rounded-xl border border-zinc-800">
+	<div x-show="tab == '{{ cat }}'" class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4">
 		{% for t in rows %}
-		<a href="/title/{{ fmt_id('tt', t.tconst) }}" data-nav x-show="q ? $el.dataset.t.includes(q.toLowerCase()) : {{ loop.index }} > (page - 1) * 50 && {{ loop.index }} <= page * 50" data-t="{{ t.primary_title | lower }}" class="flex items-center gap-4 px-4 py-2.5 hover:bg-zinc-900">
-			<span class="w-12 text-xs text-zinc-500 tabular-nums">{{ t.start_year or '—' }}</span>
-			<span class="flex-1 min-w-0"><span class="block text-sm truncate">{{ t.primary_title }}</span>
-				<span class="block text-xs text-zinc-500 truncate">{{ type_label(t.type) }}{% if t.characters %} · {{ json.loads(t.characters) | join(' / ') }}{% elif t.job %} · {{ t.job }}{% endif %}</span></span>
-			{% if t.tconst in mine.watched %}<span class="text-emerald-400 text-xs" title="Watched">●</span>{% elif t.tconst in mine.watchlist %}<span class="text-accent text-xs" title="On watchlist">◆</span>{% endif %}
-			{% if mine.tt.get(t.tconst) %}<span class="text-accent text-xs">★ {{ '%g' | format(mine.tt[t.tconst] / 2) }}</span>{% endif %}
-			<span class="w-24 text-right">{{ rating(t) }}</span>
-		</a>
+		<div x-show="q ? $el.dataset.t.includes(q.toLowerCase()) : {{ loop.index }} > (page - 1) * 50 && {{ loop.index }} <= page * 50" data-t="{{ t.primary_title | lower }}">
+			{{ card(t) }}
+			{% if t.roles or t.episodes %}<div class="mt-0.5 text-xs text-zinc-500 truncate">{{ t.roles | join(' / ') }}{% if t.roles and t.episodes %} · {% endif %}{% if t.episodes %}{{ t.episodes }} episode{{ 's' if t.episodes > 1 }}{% endif %}</div>{% endif %}
+		</div>
 		{% endfor %}
 	</div>
 	{% if rows | length > 50 %}
