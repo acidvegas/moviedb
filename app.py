@@ -2853,9 +2853,6 @@ async def titles():
 	if g.user and args.get('mine') in MINE_FILTERS:
 		where.append(MINE_FILTERS[args['mine']].format(uid=g.user['id']))
 
-	if nowatched := bool(g.user) and toggle('nowatched', False):
-		where.append(MINE_FILTERS['unwatched'].format(uid=g.user['id']))
-
 	if sort == 'mine':
 		where.append(MINE_FILTERS['rated'].format(uid=g.user['id']))
 
@@ -2869,7 +2866,7 @@ async def titles():
 	noimg  = toggle('noimg', True)
 	shown  = await with_posters(rows[:PAGE_SIZE]) if noimg else rows[:PAGE_SIZE]
 
-	return await render_template('titles.html', titles=shown, has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES, noimg=noimg, nowatched=nowatched)
+	return await render_template('titles.html', titles=shown, has_next=len(rows) > PAGE_SIZE, page=page, args=args, sort=sort, sorts=TITLE_SORTS, types=TITLE_TYPES, genres=GENRES, noimg=noimg)
 
 
 @app.route('/upcoming')
