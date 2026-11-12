@@ -128,7 +128,7 @@ CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEX
 '''
 
 app        = Quart(__name__, static_folder='static', template_folder='templates')
-state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None, 'os_tokens': {}, 'captchas': {}, 'tmdb_scores': {}}
+state      = {'session': None, 'update': None, 'lb': {}, 'precache': {}, 'subs': {}, 'images': None, 'images_at': 0.0, 'tmdb_last': 0.0, 'tmdb_lock': None, 'os_tokens': {}, 'captchas': {}, 'tmdb_scores': {}, 'backfill': {}}
 poster_sem = asyncio.Semaphore(4)
 tasks      = set()
 
@@ -718,6 +718,7 @@ async def language_backfill():
 		rows = await db.execute_fetchall("SELECT id, json_extract(data, '$.kind') AS kind, json_extract(data, '$.tmdb_id') AS tmdb_id FROM tmdb WHERE id LIKE 'tt%' AND json_valid(data) AND json_extract(data, '$.kind') IN ('movie', 'tv') AND CAST(substr(id, 3) AS INTEGER) NOT IN (SELECT tconst FROM title_language)")
 
 	queue = asyncio.Queue()
+	job   = state['backfill']['language'] = {'name': 'Original languages', 'total': len(rows), 'done': 0, 'started': time.time()}
 
 	for row in rows:
 		queue.put_nowait(row)
@@ -729,8 +730,10 @@ async def language_backfill():
 				async with user_db() as db:
 					await db.execute('INSERT OR REPLACE INTO title_language VALUES (?, ?)', (int(row['id'][2:]), d['original_language']))
 					await db.commit()
+			job['done'] += 1
 
 	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
+	state['backfill'].pop('language', None)
 
 
 async def tmdb_refresh():
@@ -745,6 +748,7 @@ async def tmdb_refresh():
 		await db.commit()
 
 	queue = asyncio.Queue()
+	job   = state['backfill']['refresh'] = {'name': 'Refetching TMDB details', 'total': len(ids), 'done': 0, 'started': time.time()}
 
 	for imdb_id in ids:
 		queue.put_nowait(imdb_id)
@@ -752,8 +756,10 @@ async def tmdb_refresh():
 	async def worker():
 		while not queue.empty():
 			await tmdb_details(queue.get_nowait())
+			job['done'] += 1
 
 	await asyncio.gather(*(worker() for _ in range(PRECACHE['workers'])))
+	state['backfill'].pop('refresh', None)
 
 
 async def precache():
@@ -2428,6 +2434,16 @@ async def precache_route():
 		await asyncio.sleep(0.3)
 
 	return await render_template('_precache.html', p=state['precache'], last=float(await setting('precache_last', '0')))
+
+
+@app.route('/admin/backfill')
+@require(admin=True)
+async def backfill_status():
+	'''Return the TMDB backfill progress partial.'''
+
+	jobs = [job | {'rate': job['done'] / max(1, time.time() - job['started'])} for job in list(state['backfill'].values())]
+
+	return await render_template('_backfill.html', jobs=jobs)
 
 
 @app.route('/rate/<kind>/<int:item_id>', methods=['POST'])
