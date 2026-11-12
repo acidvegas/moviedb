@@ -367,7 +367,7 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 
 	:param user_id: Account id
 	:param source: 'export' or 'sync', recorded in the result
-	:param watched: List of (key, name, rating) watched films
+	:param watched: List of (key, name, rating) watched films, newest first
 	:param watchlist: List of (key, name, rating) watchlist films, newest first
 	:param rated: List of (key, name, rating) rated films
 	'''
@@ -396,7 +396,7 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 		await db.executemany('DELETE FROM lb_seen WHERE user_id = ? AND kind = ? AND tconst = ?', [(user_id, 'watchlist', t) for t in gone])
 		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, t, 'watchlist', now - i) for i, t in new if t not in have])
 		await db.executemany('INSERT INTO lb_seen VALUES (?, ?, ?, ?)', [(user_id, 'watchlist', t, int(first or t not in have)) for _, t in new])
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key) and mapping[key] not in seen['watched']])
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now - i) for i, (key, _, _) in enumerate(watched) if mapping.get(key) and mapping[key] not in seen['watched']])
 		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', [r for r in ratings if r[2] not in seen['rating']])
 		await db.executemany('INSERT OR IGNORE INTO lb_seen VALUES (?, ?, ?, 0)', [(user_id, 'watched', mapping[key]) for key, _, _ in watched if mapping.get(key)] + [(user_id, 'rating', r[2]) for r in ratings])
 		if source == 'export':
@@ -949,8 +949,32 @@ async def backup_user_db():
 	await asyncio.to_thread(run)
 
 
+async def new_releases():
+	'''Fetch TMDB details for US now-playing and upcoming movies, so new releases are known before they're popular enough for the weekly pre-cache.'''
+
+	if not (key := await setting('tmdb_key')):
+		return
+
+	found = []
+
+	for path in ('movie/now_playing', 'movie/upcoming'):
+		for page in range(1, 6):
+			data = await tmdb_request(path, key, {'region': 'US', 'page': page})
+			found += [r['id'] for r in (data or {}).get('results', [])]
+			if not data or page >= data.get('total_pages', 1):
+				break
+
+	for tmdb_id in dict.fromkeys(found):
+		if (imdb_id := await tmdb_to_imdb('movie', tmdb_id)) and imdb_id.startswith('tt'):
+			await tmdb_details(imdb_id)
+
+	async with user_db() as db:
+		await db.execute('INSERT OR REPLACE INTO settings VALUES (?, ?)', ('new_releases_last', str(time.time())))
+		await db.commit()
+
+
 async def scheduler():
-	'''Hourly background loop: daily account-data backup, daily Letterboxd sync for every account, weekly IMDb rebuild, and weekly pre-cache.'''
+	'''Hourly background loop: daily account-data backup, daily new-release fetch, daily Letterboxd sync for every account, weekly IMDb rebuild, and weekly pre-cache.'''
 
 	while True:
 		try:
@@ -966,6 +990,9 @@ async def scheduler():
 			built = importer.DB_PATH.stat().st_mtime if importer.DB_PATH.exists() else 0
 			if time.time() - built >= WEEK and read_status().get('state') != 'running':
 				await start_import()
+
+			if await setting('tmdb_key') and time.time() - float(await setting('new_releases_last', '0')) >= 86400:
+				spawn(new_releases())
 
 			if importer.DB_PATH.exists() and read_status().get('state') != 'running' and await setting('tmdb_key') and time.time() - float(await setting('precache_last', '0')) >= WEEK and not state['precache'].get('running'):
 				spawn(precache())
@@ -1621,14 +1648,14 @@ async def torrent_search(tconst: int) -> tuple:
 	own   = await user_setting('bm_url') if g.user else ''
 	base  = (own or await setting('bm_url')).rstrip('/')
 	url   = base + '/torznab/api'
-	auth  = aiohttp.BasicAuth(await setting('bm_user'), await setting('bm_pass')) if not own and await setting('bm_user') else None
+	auth  = {'Authorization': aiohttp.encode_basic_auth(await setting('bm_user'), await setting('bm_pass'))} if not own and await setting('bm_user') else {}
 	more  = own or (g.user and g.user['admin'])
 	kind  = 'tvsearch' if rows[0]['parent'] or rows[0]['type'] in ('tvSeries', 'tvMiniSeries') else 'movie'
 	items = []
 
 	for offset in range(0, 1000, 100):
 		try:
-			async with state['session'].get(url, params={'t': kind, 'imdbid': fmt_id('tt', rows[0]['parent'] or tconst), 'offset': offset}, auth=auth, headers={'User-Agent': USER_AGENT}) as response:
+			async with state['session'].get(url, params={'t': kind, 'imdbid': fmt_id('tt', rows[0]['parent'] or tconst), 'offset': offset}, headers={'User-Agent': USER_AGENT} | auth) as response:
 				if response.status != 200:
 					raise RuntimeError(f'bitmagnet returned HTTP {response.status}')
 				page = ElementTree.fromstring(await response.read()).findall('./channel/item')
@@ -1937,6 +1964,30 @@ async def favicon():
 	return await app.send_static_file('icons/favicon-32.png')
 
 
+async def tmdb_to_imdb(kind: str, tmdb_id: int) -> str | None:
+	'''
+	Look up the IMDb id for a TMDB id, cached in tmdb_ids.
+
+	:param kind: 'movie', 'tv', or 'person'
+	:param tmdb_id: TMDB id
+	'''
+
+	async with user_db() as db:
+		rows = await db.execute_fetchall('SELECT imdb_id FROM tmdb_ids WHERE kind = ? AND tmdb_id = ?', (kind, tmdb_id))
+
+	if rows:
+		return rows[0]['imdb_id']
+
+	if not (key := await setting('tmdb_key')) or (ids := await tmdb_request(f'{kind}/{tmdb_id}/external_ids', key)) is None:
+		return None
+
+	async with user_db() as db:
+		await db.execute('INSERT OR REPLACE INTO tmdb_ids VALUES (?, ?, ?)', (kind, tmdb_id, ids.get('imdb_id')))
+		await db.commit()
+
+	return ids.get('imdb_id')
+
+
 @app.route('/go/tmdb/<kind>/<int:tmdb_id>')
 async def go_tmdb(kind: str, tmdb_id: int):
 	'''
@@ -1949,18 +2000,7 @@ async def go_tmdb(kind: str, tmdb_id: int):
 	if kind not in ('movie', 'tv', 'person'):
 		abort(404)
 
-	async with user_db() as db:
-		rows = await db.execute_fetchall('SELECT imdb_id FROM tmdb_ids WHERE kind = ? AND tmdb_id = ?', (kind, tmdb_id))
-
-	imdb_id = rows[0]['imdb_id'] if rows else None
-
-	if not rows and (key := await setting('tmdb_key')) and (ids := await tmdb_request(f'{kind}/{tmdb_id}/external_ids', key)) is not None:
-		imdb_id = ids.get('imdb_id')
-		async with user_db() as db:
-			await db.execute('INSERT OR REPLACE INTO tmdb_ids VALUES (?, ?, ?)', (kind, tmdb_id, imdb_id))
-			await db.commit()
-
-	if imdb_id:
+	if imdb_id := await tmdb_to_imdb(kind, tmdb_id):
 		return redirect(f'/{"name" if kind == "person" else "title"}/{imdb_id}')
 
 	if name := request.args.get('name'):
@@ -2021,9 +2061,11 @@ async def lb_fix():
 				await db.execute('INSERT OR REPLACE INTO lb_map VALUES (?, ?)', (form['key'], tconst))
 				for section in rows[0]['sections'].split(','):
 					if section in ('watched', 'watchlist'):
-						await db.execute('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', (g.user['id'], tconst, section, now))
+						cursor = await db.execute('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', (g.user['id'], tconst, section, now))
+						await db.execute('INSERT OR IGNORE INTO lb_seen VALUES (?, ?, ?, ?)', (g.user['id'], section, tconst, int(section == 'watchlist' and cursor.rowcount > 0)))
 				if rows[0]['rating']:
 					await db.execute('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', (g.user['id'], 'tt', tconst, rows[0]['rating'], now))
+					await db.execute('INSERT OR IGNORE INTO lb_seen VALUES (?, ?, ?, 0)', (g.user['id'], 'rating', tconst))
 			await db.execute('DELETE FROM lb_unmatched WHERE user_id = ? AND key = ?', (g.user['id'], form['key']))
 			await db.commit()
 
