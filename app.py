@@ -122,6 +122,7 @@ CREATE TABLE IF NOT EXISTS marks           (user_id INTEGER, tconst INTEGER, mar
 CREATE TABLE IF NOT EXISTS follows         (user_id INTEGER, nconst INTEGER, added REAL, PRIMARY KEY (user_id, nconst));
 CREATE TABLE IF NOT EXISTS lb_map          (slug TEXT PRIMARY KEY, tconst INTEGER);
 CREATE TABLE IF NOT EXISTS lb_unmatched    (user_id INTEGER, key TEXT, name TEXT, sections TEXT, rating INTEGER, PRIMARY KEY (user_id, key));
+CREATE TABLE IF NOT EXISTS lb_seen         (user_id INTEGER, kind TEXT, tconst INTEGER, owned INTEGER, PRIMARY KEY (user_id, kind, tconst));
 CREATE TABLE IF NOT EXISTS subtitles       (tconst INTEGER PRIMARY KEY, data TEXT, fetched REAL);
 '''
 
@@ -198,7 +199,7 @@ async def delete_user(user_id: int):
 
 	async with user_db() as db:
 		await db.execute('DELETE FROM list_items WHERE list_id IN (SELECT id FROM lists WHERE user_id = ?)', (user_id,))
-		for table in ('lists', 'ratings', 'marks', 'follows', 'lb_unmatched', 'user_settings', 'subtitle_keys', 'sessions'):
+		for table in ('lists', 'ratings', 'marks', 'follows', 'lb_unmatched', 'lb_seen', 'user_settings', 'subtitle_keys', 'sessions'):
 			await db.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
 		await db.execute('DELETE FROM users WHERE id = ?', (user_id,))
 		await db.commit()
@@ -356,16 +357,16 @@ async def lb_status() -> str:
 	return await render_template('_lb_status.html', lb=state['lb'].get(g.user['id'], {}), result=json.loads(await user_setting('lb_result', '{}')), unmatched=unmatched)
 
 
-async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: list, rated: list, mirror_watched: bool):
+async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: list, rated: list):
 	'''
-	Match Letterboxd items to IMDb and write them to an account's marks and ratings.
+	Match Letterboxd items to IMDb and merge them into an account's marks and ratings. Changes made on the site win: only films new on Letterboxd since the last sync are added,
+	films removed on the site are not re-added, and a film is dropped from the watchlist only when sync added it and it has since left the Letterboxd watchlist.
 
 	:param user_id: Account id
 	:param source: 'export' or 'sync', recorded in the result
 	:param watched: List of (key, name, rating) watched films
 	:param watchlist: List of (key, name, rating) watchlist films, newest first
 	:param rated: List of (key, name, rating) rated films
-	:param mirror_watched: Replace all watched marks instead of adding to them
 	'''
 
 	mapping   = await letterboxd_match(user_id, watched + watchlist + rated)
@@ -380,11 +381,21 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 				entry[1].add(section)
 				entry[2] = rating or entry[2]
 
+	lb_list = list(dict.fromkeys(mapping[key] for key, _, _ in watchlist if mapping.get(key)))
+
 	async with user_db() as db:
-		await db.execute("DELETE FROM marks WHERE user_id = ? AND (mark = 'watchlist'" + (" OR mark = 'watched')" if mirror_watched else ')'), (user_id,))
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key)])
-		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watchlist', now - i) for i, (key, _, _) in enumerate(watchlist) if mapping.get(key)])
-		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', ratings)
+		seen  = {kind: {r['tconst']: r['owned'] for r in await db.execute_fetchall('SELECT tconst, owned FROM lb_seen WHERE user_id = ? AND kind = ?', (user_id, kind))} for kind in ('watchlist', 'watched', 'rating')}
+		have  = {r['tconst'] for r in await db.execute_fetchall("SELECT tconst FROM marks WHERE user_id = ? AND mark = 'watchlist'", (user_id,))}
+		first = not seen['watchlist']
+		new   = [(i, t) for i, t in enumerate(lb_list) if t not in seen['watchlist']]
+		gone  = [t for t, owned in seen['watchlist'].items() if t not in set(lb_list)]
+		await db.executemany("DELETE FROM marks WHERE user_id = ? AND tconst = ? AND mark = 'watchlist'", [(user_id, t) for t in gone if seen['watchlist'][t]])
+		await db.executemany('DELETE FROM lb_seen WHERE user_id = ? AND kind = ? AND tconst = ?', [(user_id, 'watchlist', t) for t in gone])
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, t, 'watchlist', now - i) for i, t in new if t not in have])
+		await db.executemany('INSERT INTO lb_seen VALUES (?, ?, ?, ?)', [(user_id, 'watchlist', t, int(first or t not in have)) for _, t in new])
+		await db.executemany('INSERT OR IGNORE INTO marks VALUES (?, ?, ?, ?)', [(user_id, mapping[key], 'watched', now) for key, _, _ in watched if mapping.get(key) and mapping[key] not in seen['watched']])
+		cursor = await db.executemany('INSERT OR IGNORE INTO ratings VALUES (?, ?, ?, ?, ?)', [r for r in ratings if r[2] not in seen['rating']])
+		await db.executemany('INSERT OR IGNORE INTO lb_seen VALUES (?, ?, ?, 0)', [(user_id, 'watched', mapping[key]) for key, _, _ in watched if mapping.get(key)] + [(user_id, 'rating', r[2]) for r in ratings])
 		if source == 'export':
 			await db.execute('DELETE FROM lb_unmatched WHERE user_id = ?', (user_id,))
 		await db.executemany('INSERT OR REPLACE INTO lb_unmatched VALUES (?, ?, ?, ?, ?)', [(user_id, key, name, ','.join(sorted(sections)), rating) for key, (name, sections, rating) in unmatched.items()])
@@ -395,7 +406,7 @@ async def letterboxd_apply(user_id: int, source: str, watched: list, watchlist: 
 
 async def letterboxd_import(user_id: int, data: bytes):
 	'''
-	Import a Letterboxd data export zip: full mirror of watched and watchlist, ratings added without overwriting local ones.
+	Import a Letterboxd data export zip, merged with the same rules as the daily sync (see letterboxd_apply).
 
 	:param user_id: Account id
 	:param data: Raw zip file bytes
@@ -413,7 +424,7 @@ async def letterboxd_import(user_id: int, data: bytes):
 
 			watched, watchlist, rated = read('watched.csv'), read('watchlist.csv'), read('ratings.csv')
 
-		await letterboxd_apply(user_id, 'export', watched, watchlist, rated, True)
+		await letterboxd_apply(user_id, 'export', watched, watchlist, rated)
 		state['lb'][user_id] = {'running': False}
 	except Exception as e:
 		state['lb'][user_id] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
@@ -516,7 +527,7 @@ async def letterboxd_sync(user_id: int):
 		if not watched and not watchlist:
 			raise RuntimeError(f'no films found for {user} (private profile or wrong username?)')
 
-		await letterboxd_apply(user_id, 'sync', watched, watchlist, watched, False)
+		await letterboxd_apply(user_id, 'sync', watched, watchlist, watched)
 		state['lb'][user_id] = {'running': False}
 	except Exception as e:
 		state['lb'][user_id] = {'running': False, 'error': f'{type(e).__name__}: {e}'}
@@ -2603,6 +2614,7 @@ async def title_mark(tconst: int):
 
 	async with user_db() as db:
 		cursor = await db.execute('DELETE FROM marks WHERE user_id = ? AND tconst = ? AND mark = ?', (g.user['id'], tconst, mark))
+		await db.execute('UPDATE lb_seen SET owned = 0 WHERE user_id = ? AND tconst = ?', (g.user['id'], tconst))
 		if not cursor.rowcount:
 			await db.execute('INSERT INTO marks VALUES (?, ?, ?, ?)', (g.user['id'], tconst, mark, time.time()))
 			if mark == 'watched':
