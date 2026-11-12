@@ -16,6 +16,10 @@
 				<select name="mine" class="{{ inp }}"><option value="">Everything</option>{% for m, label in [('unwatched', 'Hide watched'), ('watched', 'Watched only'), ('watchlist', 'Watchlist only'), ('rated', 'Rated by me')] %}<option value="{{ m }}" {{ 'selected' if args.mine == m }}>{{ label }}</option>{% endfor %}</select></div>{% endif %}
 			{% if mine.providers %}<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="services" value="1" {{ 'checked' if args.services == '1' }} class="accent-yellow-400"> On my streaming services</label>
 			<p class="text-[11px] text-zinc-500 -mt-2">Only titles with cached TMDB data are known. Run a pre-cache in Settings to cover more.</p>{% endif %}
+			<input type="hidden" name="noimg" value="0">
+			<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="noimg" value="1" {{ 'checked' if noimg }} onchange="remember('noimg', this.checked)" class="accent-yellow-400"> Hide titles without an image</label>
+			{% if user %}<input type="hidden" name="nowatched" value="0">
+			<label class="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" name="nowatched" value="1" {{ 'checked' if nowatched }} onchange="remember('nowatched', this.checked)" class="accent-yellow-400"> Hide watched</label>{% endif %}
 			<div class="grid grid-cols-2 gap-2">
 				<div><label class="text-xs text-zinc-500">Year from</label><input name="year_from" type="number" value="{{ args.year_from or '' }}" class="{{ inp }}"></div>
 				<div><label class="text-xs text-zinc-500">Year to</label><input name="year_to" type="number" value="{{ args.year_to or '' }}" class="{{ inp }}"></div>
