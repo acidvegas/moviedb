@@ -63,6 +63,8 @@ TMDB_RATE    = 35
 IMG_SIZES    = ('w92', 'w185', 'w342', 'w500', 'w780', 'w1280', 'original')
 PRECACHE     = {'titles': 100_000, 'people': 20_000, 'workers': 12}
 SUBS_DIR     = importer.DATA_DIR / 'subs'
+BACKUP_DIR   = importer.DATA_DIR / 'backups'
+BACKUP_TABLES = ('users', 'user_settings', 'subtitle_keys', 'lists', 'list_items', 'settings', 'ratings', 'marks', 'follows', 'lb_map', 'lb_unmatched', 'lb_seen')
 OS_AGENT     = 'MovieDB v1.0'
 WEEK         = 7 * 86400
 SESSION_AGE  = 365 * 86400
@@ -919,11 +921,41 @@ def require(admin: bool = False):
 	return decorator
 
 
+async def backup_user_db():
+	'''Save today's copy of the account data in user.db (every table except caches and sessions) to data/backups, keeping the last 7 days.'''
+
+	path = BACKUP_DIR / f'user-{time.strftime("%Y-%m-%d")}.db'
+
+	if path.exists():
+		return
+
+	def run():
+		BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+		tmp = path.with_suffix('.tmp')
+		tmp.unlink(missing_ok=True)
+		dst = sqlite3.connect(tmp)
+		dst.executescript(USER_SCHEMA.replace('PRAGMA journal_mode = WAL;', ''))
+		dst.execute('ATTACH ? AS src', (str(USER_DB),))
+		for table in BACKUP_TABLES:
+			cols = ', '.join(r[1] for r in dst.execute(f'PRAGMA main.table_info({table})'))
+			dst.execute(f'INSERT INTO main.{table} ({cols}) SELECT {cols} FROM src.{table}')
+		dst.commit()
+		dst.execute('DETACH src')
+		dst.close()
+		tmp.rename(path)
+		for old in sorted(BACKUP_DIR.glob('user-*.db'))[:-7]:
+			old.unlink()
+
+	await asyncio.to_thread(run)
+
+
 async def scheduler():
-	'''Hourly background loop: daily Letterboxd sync for every account, weekly IMDb rebuild, and weekly pre-cache.'''
+	'''Hourly background loop: daily account-data backup, daily Letterboxd sync for every account, weekly IMDb rebuild, and weekly pre-cache.'''
 
 	while True:
 		try:
+			await backup_user_db()
+
 			async with user_db() as db:
 				synced = [row['user_id'] for row in await db.execute_fetchall("SELECT s.user_id FROM user_settings s JOIN users u ON u.id = s.user_id WHERE s.key = 'letterboxd_user' AND s.value != '' AND u.approved = 1")]
 
@@ -1743,7 +1775,9 @@ async def inject_mine():
 		source  = await db.execute_fetchall("SELECT value FROM user_settings WHERE user_id = ? AND key = 'rating_source'", (g.user['id'],))
 
 	def tmdb_score(tconst: int, rating: float, votes: int) -> tuple | None:
-		return state['tmdb_scores'].get(tconst) or imdb_score(tconst, rating, votes)
+		if tmdb := state['tmdb_scores'].get(tconst):
+			return (*tmdb, 'TMDB')
+		return (rating, votes, 'IMDb') if rating else None
 
 	return {'score': tmdb_score if source and source[0]['value'] == 'tmdb' else imdb_score, 'mine': {'watched': {m['tconst'] for m in marks if m['mark'] == 'watched'}, 'watchlist': {m['tconst'] for m in marks if m['mark'] == 'watchlist'}, 'tt': {r['id']: r['rating'] for r in ratings if r['kind'] == 'tt'}, 'nm': {r['id']: r['rating'] for r in ratings if r['kind'] == 'nm'}, 'follows': {f['nconst'] for f in follows}, 'providers': set(await my_providers())}}
 
@@ -2932,8 +2966,8 @@ async def titles():
 		where.append(MINE_FILTERS['rated'].format(uid=g.user['id']))
 
 	if released := toggle('released', True):
-		where.append('start_year <= ? AND tconst NOT IN (SELECT tconst FROM u.title_released WHERE released > ?)')
-		params.extend([time.localtime().tm_year, time.strftime('%Y-%m-%d')])
+		where.append('(start_year < ? OR tconst IN (SELECT tconst FROM u.title_released WHERE released <= ?)) AND tconst NOT IN (SELECT tconst FROM u.title_released WHERE released > ?)')
+		params.extend([time.localtime().tm_year, time.strftime('%Y-%m-%d'), time.strftime('%Y-%m-%d')])
 
 	if args.get('services') == '1' and (services := await my_providers()):
 		where.append(f'tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))')
