@@ -24,12 +24,18 @@
 <div class="flex flex-wrap items-center gap-2 mb-4 text-sm">
 	<span class="text-zinc-500">{{ '{:,}'.format(total) }} {{ 'people' if tab == 'people' else 'titles' }}{% if stars %} rated {{ '%g' | format(stars / 2) }} ★ <a href="/library?tab={{ tab }}" class="text-accent">clear</a>{% endif %}</span>
 	{% if tab != 'people' and mine.providers %}
-	<a href="/library?tab={{ tab }}&sort={{ sort }}{{ '&stars=' ~ stars if stars else '' }}{{ '' if services else '&services=1' }}" class="px-3 py-1.5 rounded-lg {{ 'bg-emerald-500 text-black font-semibold' if services else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ '✓ ' if services }}On my services</a>
+	<a href="/library?tab={{ tab }}&sort={{ sort }}&dir={{ sort_dir }}{{ '&stars=' ~ stars if stars else '' }}{{ '' if services else '&services=1' }}" class="px-3 py-1.5 rounded-lg {{ 'bg-emerald-500 text-black font-semibold' if services else 'bg-zinc-800 hover:bg-zinc-700' }}">{{ '✓ ' if services }}On my services</a>
 	{% endif %}
 	{% if tab != 'people' %}
-	<select onchange="htmx.ajax('GET', '/library?tab={{ tab }}{{ '&stars=' ~ stars if stars else '' }}{{ '&services=1' if services else '' }}&sort=' + this.value, {target: 'main', select: 'main', pushUrl: true})" class="ml-auto rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1.5">
-		{% for s, label in [('added', 'Recently added'), ('mine', 'My rating'), ('rating', 'IMDb rating'), ('year', 'Year'), ('title', 'Title')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}
-	</select>
+	<form action="/library" method="get" class="ml-auto flex items-center gap-2" hx-get="/library" hx-trigger="change" hx-target="main" hx-select="main" hx-push-url="true">
+		<input type="hidden" name="tab" value="{{ tab }}">{% if stars %}<input type="hidden" name="stars" value="{{ stars }}">{% endif %}{% if services %}<input type="hidden" name="services" value="1">{% endif %}
+		<select name="sort" class="rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1.5">
+			{% for s, label in [('added', 'Date added'), ('mine', 'My rating'), ('rating', 'IMDb rating'), ('votes', 'Popularity'), ('year', 'Year'), ('runtime', 'Runtime'), ('title', 'Title')] %}<option value="{{ s }}" {{ 'selected' if sort == s }}>{{ label }}</option>{% endfor %}
+		</select>
+		<select name="dir" class="rounded-lg bg-zinc-900 border border-zinc-800 px-2 py-1.5">
+			{% for d, label in [('desc', 'Descending'), ('asc', 'Ascending')] %}<option value="{{ d }}" {{ 'selected' if sort_dir == d }}>{{ label }}</option>{% endfor %}
+		</select>
+	</form>
 	{% endif %}
 	<a href="/library/export.csv?tab={{ tab }}" hx-boost="false" class="{{ '' if tab != 'people' else 'ml-auto' }} px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">CSV</a>
 	<a href="/library/export.json?tab={{ tab }}" hx-boost="false" class="px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700">JSON</a>

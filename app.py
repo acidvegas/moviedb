@@ -2137,7 +2137,7 @@ async def library():
 		counts = (await db.execute_fetchall("SELECT (SELECT count(*) FROM marks WHERE user_id = :u AND mark = 'watched') AS watched, (SELECT count(*) FROM marks WHERE user_id = :u AND mark = 'watchlist') AS watchlist, (SELECT count(*) FROM ratings WHERE user_id = :u AND kind = 'tt') AS rated, (SELECT count(*) FROM ratings WHERE user_id = :u AND kind = 'nm') AS people, (SELECT avg(rating) FROM ratings WHERE user_id = :u AND kind = 'tt') AS avg", {'u': g.user['id']}))[0]
 		histo  = {r['rating']: r['count'] for r in await db.execute_fetchall("SELECT rating, count(*) AS count FROM ratings WHERE user_id = ? AND kind = ? GROUP BY rating", (g.user['id'], 'nm' if tab == 'people' else 'tt'))}
 
-	return await render_template('library.html', tab=tab, sort=sort, rows=rows[(page - 1) * size:page * size], total=len(rows), page=page, has_next=len(rows) > page * size, counts=counts, histo=histo, stars=request.args.get('stars', type=int), services=request.args.get('services') == '1')
+	return await render_template('library.html', tab=tab, sort=sort, sort_dir=request.args.get('dir', 'asc' if sort == 'title' else 'desc'), rows=rows[(page - 1) * size:page * size], total=len(rows), page=page, has_next=len(rows) > page * size, counts=counts, histo=histo, stars=request.args.get('stars', type=int), services=request.args.get('services') == '1')
 
 
 @app.route('/library/export.<fmt>')
@@ -2187,7 +2187,8 @@ async def library_rows(tab: str, sort: str) -> list:
 		return await query(f"SELECT n.*, r.rating AS my_rating FROM u.ratings r JOIN names n ON n.nconst = r.id WHERE r.user_id = {uid} AND r.kind = 'nm' {'AND r.rating = ?' if stars else ''} ORDER BY r.rating DESC, n.score DESC", (stars,) if stars else ())
 
 	source = {'watchlist': f"SELECT tconst, added FROM u.marks WHERE user_id = {uid} AND mark = 'watchlist'", 'watched': f"SELECT tconst, added FROM u.marks WHERE user_id = {uid} AND mark = 'watched'"}.get(tab, f"SELECT id AS tconst, updated AS added FROM u.ratings WHERE user_id = {uid} AND kind = 'tt' {'AND rating = ?' if stars else ''}")
-	order  = {'added': 'm.added DESC', 'rating': 't.rating DESC', 'mine': 'my_rating DESC', 'year': 't.start_year DESC', 'title': 't.primary_title COLLATE NOCASE'}.get(sort, 'm.added DESC')
+	column = {'added': 'm.added', 'rating': 't.rating', 'votes': 't.votes', 'mine': 'my_rating', 'year': 't.start_year', 'runtime': 't.runtime', 'title': 't.primary_title COLLATE NOCASE'}.get(sort, 'm.added')
+	order  = f"{column} IS NULL, {column} {'ASC' if request.args.get('dir', 'asc' if sort == 'title' else 'desc') == 'asc' else 'DESC'}"
 	extra  = f'WHERE t.tconst IN (SELECT tconst FROM u.title_providers WHERE provider_id IN ({",".join("?" * len(services))}))' if services else ''
 
 	return await query(f'''
