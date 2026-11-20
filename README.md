@@ -1,27 +1,70 @@
-# MovieDB
+<p align="center">
+	<img src="static/icons/icon.svg" width="128" alt="MovieDB logo">
+</p>
 
-## Live demo: [movies.supernets.org](https://movies.supernets.org)
+<h1 align="center">MovieDB</h1>
 
-A self-hosted movie and TV browser built on the full IMDb datasets. Everything lives on your own server, so it keeps working at home even when the internet is down.
+<p align="center">A self-hosted movie and TV browser built on the full IMDb datasets.</p>
+
+<p align="center">
+	<a href="https://movies.supernets.org"><img src="https://img.shields.io/badge/live_demo-movies.supernets.org-f5c518?style=flat-square&labelColor=18181b" alt="Live demo"></a>
+	<img src="https://img.shields.io/badge/python-3.12+-f5c518?style=flat-square&labelColor=18181b" alt="Python 3.12+">
+	<img src="https://img.shields.io/badge/IMDb-12M+_titles-f5c518?style=flat-square&labelColor=18181b" alt="12M+ titles">
+	<a href="LICENSE"><img src="https://img.shields.io/badge/license-ISC-f5c518?style=flat-square&labelColor=18181b" alt="ISC license"></a>
+</p>
+
+<p align="center">
+	<a href="https://movies.supernets.org">Live demo</a> &nbsp;•&nbsp; <a href="#features">Features</a> &nbsp;•&nbsp; <a href="#install">Install</a> &nbsp;•&nbsp; <a href="#docker">Docker</a> &nbsp;•&nbsp; <a href="#configuration">Configuration</a>
+</p>
+
+<p align="center">
+	<img src=".github/screenshots/title.webp" alt="Title page">
+</p>
+
+Every IMDb title and credit, searchable on your own server. Ratings, watchlists, lists, recommendations and Letterboxd sync come along with it, and since posters and details are stored locally, it keeps working at home even when the internet is down.
+
+## Screenshots
+
+<table>
+	<tr>
+		<td width="38%" rowspan="2" align="center"><img src=".github/screenshots/mobile.webp" alt="Title page on a phone"><br><sub>Mobile layout</sub></td>
+		<td align="center"><img src=".github/screenshots/titles.webp" alt="Browsing titles"><br><sub>Browse and filter every title</sub></td>
+	</tr>
+	<tr>
+		<td align="center"><img src=".github/screenshots/person.webp" alt="Person page"><br><sub>People and their credits</sub></td>
+	</tr>
+</table>
 
 ## Features
 
+**Browse**
+
 - Browse and search all 12M+ IMDb titles and the people credited on them, no account needed
-- Accounts with their own ratings, lists, watchlist, Letterboxd sync and streaming services *(username and password only, no email, captcha on sign up)*
-- Admin page to approve, delete or reset the password of any account, and to close registration or require approval
 - Title pages with plot, trailer, full cast and crew, streaming availability and more from TMDB
+- Side-scrolling home page rows, infinite scroll, keyboard shortcuts *(press `?`)* and a mobile-friendly layout
+
+**Your library**
+
+- Accounts with their own ratings, lists, watchlist, Letterboxd sync and streaming services *(username and password only, no email, captcha on sign up)*
 - Rate titles and people *(half-star steps)*, mark titles watched or add them to your watchlist
 - Custom lists with CSV/JSON export
 - Recommendations based on your ratings, watched titles, watchlist, a list or a single title
 - Follow directors and actors to see their upcoming and recent releases
 - Letterboxd sync *(daily watchlist sync plus full import from a Letterboxd export zip)*
 - Filter by the streaming services you subscribe to
+
+**Watching**
+
 - English subtitles for movies and episodes from SubDL and OpenSubtitles, saved on the server, with a daily prefetch for every library *(users can add their own API keys to a shared pool)*
 - Links to 28 third-party streaming sites on every title page *(direct links where the site uses TMDB/IMDb ids, otherwise a search)*
 - Top torrents by seeders from a [bitmagnet](https://bitmagnet.io/) instance, with magnet copy and a link to search for more *(optional; users can set their own bitmagnet URL or fall back to the admin's shared one, without the search link)*
+
+**Running it**
+
 - Offline: posters, details and all assets are stored locally and pre-cached for the most popular titles
 - Weekly automatic IMDb rebuilds, swapped in atomically while the site stays up
-- Infinite scroll, keyboard shortcuts *(press `?`)* and a mobile-friendly layout
+- Admin page to approve, delete or reset the password of any account, and to close registration or require approval
+- Daily backups of the account data, keeping the last 7 days
 
 ## Requirements
 
