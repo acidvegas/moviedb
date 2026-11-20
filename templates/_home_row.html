@@ -1,0 +1,6 @@
+<!-- moviedb - Developed by acidvegas in HTML (https://github.com/acidvegas) -->
+<!-- templates/_home_row.html -->
+
+{% from '_macros.html' import card with context %}
+{% for t in row.titles %}<div class="w-36 sm:w-40 lg:w-44 shrink-0">{{ card(t) }}</div>{% endfor %}
+{% if row.has_next %}<div class="w-36 sm:w-40 lg:w-44 shrink-0 aspect-[2/3] flex items-center justify-center" hx-get="/?row={{ row.name }}&page={{ row.page + 1 }}" hx-trigger="intersect once" hx-swap="outerHTML"><span class="text-sm text-zinc-500 animate-pulse">Loading more…</span></div>{% endif %}
