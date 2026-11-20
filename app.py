@@ -44,6 +44,7 @@ BASE_DIR     = Path(__file__).resolve().parent
 USER_DB      = BASE_DIR / 'user.db'
 IMAGE_DIR    = importer.DATA_DIR / 'images'
 PAGE_SIZE    = 48
+HOME_SIZE    = 24
 USER_AGENT   = 'MovieDB/1.0'
 TITLE_TYPES  = ['movie', 'tvSeries', 'tvMiniSeries', 'tvMovie', 'tvSpecial', 'short', 'tvShort', 'video', 'tvEpisode', 'tvPilot']
 GENRES       = ['Action', 'Adventure', 'Animation', 'Biography', 'Comedy', 'Crime', 'Documentary', 'Drama', 'Family', 'Fantasy', 'Film-Noir', 'Game-Show', 'History', 'Horror', 'Music', 'Musical', 'Mystery', 'News', 'Reality-TV', 'Romance', 'Sci-Fi', 'Short', 'Sport', 'Talk-Show', 'Thriller', 'War', 'Western']
@@ -2031,19 +2032,25 @@ async def tmdb_image(size: str, filename: str):
 
 @app.route('/')
 async def index():
-	'''Home page with highlights.'''
+	'''Home page with side-scrolling highlight rows (?row=<name>&page=<n> returns the next cards of one row).'''
 
-	year    = time.localtime().tm_year
-	popular = await query(f"SELECT * FROM titles WHERE type = 'movie' AND {hidden_sql()} ORDER BY votes DESC LIMIT 24")
-	today   = time.strftime('%Y-%m-%d')
-	recent  = await query("SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN ? AND ? AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC LIMIT 24", (time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), today))
-	recent  = recent or await query(f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= ? AND {hidden_sql()} ORDER BY votes DESC LIMIT 24", (year - 1,))
-	series  = await query(f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {hidden_sql()} ORDER BY votes DESC LIMIT 24")
+	params = {'since': time.strftime('%Y-%m-%d', time.localtime(time.time() - 90 * 86400)), 'today': time.strftime('%Y-%m-%d'), 'year': time.localtime().tm_year - 1}
+	rows   = {
+		'recent':     "SELECT t.* FROM u.title_released r JOIN titles t ON t.tconst = r.tconst WHERE r.released BETWEEN :since AND :today AND t.tconst IN (SELECT tconst FROM u.title_language WHERE language = 'en') AND t.type = 'movie' AND t.votes >= 1000 ORDER BY r.released DESC",
+		'recent_old': f"SELECT * FROM titles WHERE type = 'movie' AND start_year >= :year AND {hidden_sql()} ORDER BY votes DESC",
+		'popular':    f"SELECT * FROM titles WHERE type = 'movie' AND {hidden_sql()} ORDER BY votes DESC",
+		'series':     f"SELECT * FROM titles WHERE type IN ('tvSeries', 'tvMiniSeries') AND {hidden_sql()} ORDER BY votes DESC"}
 
-	if pref('noimg'):
-		popular, recent, series = await asyncio.gather(with_posters(popular), with_posters(recent), with_posters(series))
+	async def row(name: str, page: int = 1) -> dict:
+		items = await query(f'{rows[name]} LIMIT {HOME_SIZE + 1} OFFSET {(page - 1) * HOME_SIZE}', params)
+		return {'name': name, 'page': page, 'has_next': len(items) > HOME_SIZE, 'titles': await with_posters(items[:HOME_SIZE]) if pref('noimg') else items[:HOME_SIZE]}
 
-	return await render_template('index.html', popular=popular[:12], recent=recent[:12], series=series[:12])
+	if (name := request.args.get('row')) in rows:
+		return await render_template('_home_row.html', row=await row(name, max(1, request.args.get('page', 1, type=int))))
+
+	recent, popular, series = await asyncio.gather(row('recent'), row('popular'), row('series'))
+
+	return await render_template('index.html', recent=recent if recent['titles'] else await row('recent_old'), popular=popular, series=series)
 
 
 @app.route('/letterboxd/fix', methods=['GET', 'POST'])
